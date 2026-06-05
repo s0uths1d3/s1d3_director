@@ -256,3 +256,50 @@ pub struct BeatAlternative {
     pub content: String,
     pub tone: Option<String>,
 }
+
+// ==================== 项目管理 ====================
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct Project {
+    pub id: String,
+    pub title: String,
+    #[serde(default)]
+    pub description: String,
+    pub style: String,
+    #[serde(default)]
+    pub status: String,
+    #[serde(default)]
+    pub owner: String,
+    pub novel_preview: Option<String>,
+    pub script_id: Option<String>,
+    #[serde(rename = "created_at")]
+    pub created_at: String,
+    #[serde(rename = "updated_at")]
+    pub updated_at: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct CreateProjectRequest {
+    pub title: String,
+    #[serde(default)]
+    pub description: String,
+    pub style: Option<String>,
+    #[serde(default)]
+    pub owner: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct UpdateProjectRequest {
+    pub title: Option<String>,
+    pub description: Option<String>,
+    pub status: Option<String>,
+    pub style: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct ProjectListResponse {
+    pub projects: Vec<Project>,
+    pub total: i64,
+    pub page: i64,
+    pub page_size: i64,
+}

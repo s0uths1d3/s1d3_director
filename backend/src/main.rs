@@ -7,7 +7,7 @@ mod causal_graph;
 mod relation_network;
 mod co_pilot;
 
-use axum::{Router, routing::get, routing::post};
+use axum::{Router, routing::{get, post, put, delete}};
 use handlers::AppState;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
@@ -28,13 +28,21 @@ async fn main() {
     // 读取 DeepSeek API 配置
     let deepseek_api_key = std::env::var("DEEPSEEK_API_KEY").unwrap_or_default();
     let deepseek_base_url = std::env::var("DEEPSEEK_BASE_URL")
-        .unwrap_or_else(|_| "https://api.deepseek.com/v1".to_string());
+        .unwrap_or_else(|_| "https://api.deepseek.com".to_string());
 
-    tracing::info!(
-        api_key_set = !deepseek_api_key.is_empty(),
-        base_url = %deepseek_base_url,
-        "DeepSeek API 配置已加载"
-    );
+    let is_mock = deepseek_api_key.is_empty() || deepseek_api_key == "mock";
+    if is_mock {
+        tracing::warn!(
+            "⚠️  DeepSeek API Key 未配置（或为 mock），将使用【模拟模式】返回预设示例数据，不会产生任何 token 消耗"
+        );
+        tracing::warn!("如需使用真实 AI 生成，请在 .env 中设置有效的 DEEPSEEK_API_KEY");
+    } else {
+        tracing::info!(
+            api_key_prefix = &deepseek_api_key[..deepseek_api_key.len().min(8)],
+            base_url = %deepseek_base_url,
+            "✅ DeepSeek API 已配置，将使用【真实 LLM 模式】生成剧本"
+        );
+    }
 
     // 读取数据库连接字符串
     let database_url = std::env::var("DATABASE_URL")
@@ -77,6 +85,14 @@ async fn main() {
                 // AI 副编剧
                 .route("/api/co-pilot/chat", post(handlers::copilot_chat_handler))
                 .route("/api/co-pilot/suggest", post(handlers::copilot_suggest_handler))
+                // 项目管理 CRUD
+                .route("/api/projects", get(handlers::list_projects))
+                .route("/api/projects", post(handlers::create_project))
+                .route("/api/projects/:id", get(handlers::get_project))
+                .route("/api/projects/:id", put(handlers::update_project))
+                .route("/api/projects/:id", delete(handlers::delete_project))
+                // 剧本数据
+                .route("/api/scripts/:id", get(handlers::get_script))
                 // CORS 中间件
                 .layer(axum::middleware::from_fn(handlers::cors_middleware))
                 // 注入共享状态
@@ -85,7 +101,8 @@ async fn main() {
             let addr = "0.0.0.0:8081";
           tracing::info!("Novel2Script Pro 后端服务启动于 {}", addr);
 
-            let listener = tokio::net::TcpListener::bind(addr).await.unwrap();
+            let listener = tokio::net::TcpListener::bind(addr).await
+                .expect(&format!("无法绑定地址 {}，请检查端口是否被占用或使用 netstat -ano | findstr :8081 查看占用进程", addr));
             axum::serve(listener, app).await.unwrap();
         }
         Err(e) => {
@@ -107,13 +124,22 @@ async fn main() {
                 .route("/api/relation/update", post(handlers::update_relation))
                 .route("/api/co-pilot/chat", post(handlers::copilot_chat_handler))
                 .route("/api/co-pilot/suggest", post(handlers::copilot_suggest_handler))
+                // 项目管理 CRUD
+                .route("/api/projects", get(handlers::list_projects))
+                .route("/api/projects", post(handlers::create_project))
+                .route("/api/projects/:id", get(handlers::get_project))
+                .route("/api/projects/:id", put(handlers::update_project))
+                .route("/api/projects/:id", delete(handlers::delete_project))
+                // 剧本数据
+                .route("/api/scripts/:id", get(handlers::get_script))
                 .layer(axum::middleware::from_fn(handlers::cors_middleware))
                 .with_state(state);
 
             let addr = "0.0.0.0:8081";
           tracing::info!("Novel2Script Pro 后端服务启动于 {} (无数据库模式)", addr);
 
-            let listener = tokio::net::TcpListener::bind(addr).await.unwrap();
+            let listener = tokio::net::TcpListener::bind(addr).await
+                .expect(&format!("无法绑定地址 {}，请检查端口是否被占用或使用 netstat -ano | findstr :8081 查看占用进程", addr));
             axum::serve(listener, app).await.unwrap();
         }
     }
@@ -162,6 +188,29 @@ async fn migrate_database(pool: &sqlx::PgPool) {
     sqlx::query("CREATE INDEX IF NOT EXISTS idx_scripts_created ON scripts(created_at)")
         .execute(pool).await.ok();
     sqlx::query("CREATE INDEX IF NOT EXISTS idx_copilot_session ON copilot_chats(session_id)")
+        .execute(pool).await.ok();
+
+    // 项目表：管理用户创建的改编剧本项目
+    sqlx::query(r#"
+        CREATE TABLE IF NOT EXISTS projects (
+            id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+            title VARCHAR(255) NOT NULL,
+            description TEXT DEFAULT '',
+            style VARCHAR(50) DEFAULT 'short_drama',
+            status VARCHAR(20) DEFAULT 'draft',
+            owner VARCHAR(100) DEFAULT 'anonymous',
+            novel_preview TEXT,
+            script_id UUID REFERENCES scripts(id) ON DELETE SET NULL,
+            created_at TIMESTAMPTZ DEFAULT NOW(),
+            updated_at TIMESTAMPTZ DEFAULT NOW()
+        )
+    "#).execute(pool).await.expect("创建 projects 表失败");
+
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_projects_status ON projects(status)")
+        .execute(pool).await.ok();
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_projects_owner ON projects(owner)")
+        .execute(pool).await.ok();
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_projects_created ON projects(created_at)")
         .execute(pool).await.ok();
 
     tracing::info!("数据库表结构初始化完成");

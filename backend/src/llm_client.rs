@@ -63,10 +63,11 @@ pub async fn call_deepseek(
     system_prompt: Option<&str>,
     json_mode: bool,
 ) -> Result<String, String> {
-    // 模拟模式判断
+    // 模式模式判断
     let is_mock = api_key.is_empty() || api_key == "mock";
 
     if is_mock {
+        tracing::warn!("⚠️  当前为模拟模式，未调用 DeepSeek API（无 token 消耗）");
         return Ok(mock_response(prompt, json_mode));
     }
 
@@ -86,7 +87,7 @@ pub async fn call_deepseek(
     // 构建请求体
     let msg_count = messages.len();
     let mut request = DeepSeekRequest {
-        model: "deepseek-chat".to_string(),
+        model: "deepseek-v4-flash".to_string(),
         messages,
         temperature: Some(0.7),
         response_format: None,
@@ -99,11 +100,12 @@ pub async fn call_deepseek(
     }
 
     // 发送 HTTP 请求
+    // DeepSeek OpenAI 兼容格式：base_url = https://api.deepseek.com，实际端点为 /v1/chat/completions
     let client = reqwest::Client::new();
     let base_url_trimmed = base_url.trim_end_matches('/');
-    let url = format!("{}/chat/completions", base_url_trimmed);
+    let url = format!("{}/v1/chat/completions", base_url_trimmed);
 
-    tracing::info!(url = %url, model = "deepseek-chat", msg_count = msg_count, "Calling DeepSeek API");
+    tracing::info!(url = %url, model = "deepseek-v4-flash", msg_count = msg_count, "Calling DeepSeek API");
 
     // 验证 URL 有效性
     let parsed_url = reqwest::Url::parse(&url)

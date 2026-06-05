@@ -1,7 +1,7 @@
 <template>
   <div class="min-h-screen bg-gradient-to-br from-slate-900 via-indigo-950 to-slate-900">
     <!-- 顶部导航 -->
-    <nav class="border-b border-slate-700/50 bg-slate-900/80 backdrop-blur-sm">
+    <nav class="border-b border-slate-700/50 bg-slate-900/80 backdrop-blur-sm sticky top-0 z-50">
       <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div class="flex items-center justify-between h-16">
           <div class="flex items-center gap-3">
@@ -14,175 +14,414 @@
             <h1 class="text-xl font-bold text-white">Novel2Script Pro</h1>
             <span class="px-2 py-0.5 text-xs font-medium bg-indigo-500/20 text-indigo-300 rounded-full">AI 驱动</span>
           </div>
+          <button @click="refreshProjects" :disabled="loadingProjects"
+            class="flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 transition-colors disabled:opacity-50">
+            <svg :class="{ 'animate-spin': loadingProjects }" class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+            </svg>
+            刷新
+          </button>
         </div>
       </div>
     </nav>
 
-    <main class="max-w-5xl mx-auto px-4 py-12">
-      <!-- 标题区域 -->
-      <div class="text-center mb-12">
-        <h2 class="text-4xl font-bold text-white mb-4">
-          小说转剧本
-          <span class="bg-gradient-to-r from-indigo-400 to-purple-400 bg-clip-text text-transparent">
-            智能创作平台
-          </span>
-        </h2>
-        <p class="text-lg text-slate-400 max-w-2xl mx-auto">
-          上传你的小说文本，AI 将自动分析情感节奏、提取角色、生成专业剧本，
-          支持因果图谱、关系网络、盲演模式等创新功能。
-        </p>
-      </div>
+    <main class="max-w-7xl mx-auto px-4 py-8 space-y-10">
+      <!-- ==================== 项目数据展示区域 ==================== -->
+      <section>
+        <div class="flex items-center justify-between mb-5">
+          <h2 class="text-xl font-semibold text-white flex items-center gap-2">
+            <svg class="w-5 h-5 text-indigo-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
+            </svg>
+            我的项目
+            <span v-if="projectList.total > 0" class="text-sm font-normal text-slate-400">({{ projectList.total }})</span>
+          </h2>
 
-      <!-- 主要输入区 -->
-      <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <!-- 左侧：小说输入 -->
-        <div class="lg:col-span-2 space-y-6">
-          <!-- 文本输入卡片 -->
-          <div class="bg-slate-800/60 backdrop-blur-sm rounded-xl border border-slate-700/50 p-6">
-            <label class="block text-sm font-medium text-slate-300 mb-3">
-              小说文本输入
-            </label>
-
-            <!-- 文件上传 -->
-            <div
-              class="border-2 border-dashed border-slate-600 rounded-lg p-8 text-center hover:border-indigo-500/50 transition-colors cursor-pointer mb-4"
-              @click="triggerFileInput"
-              @dragover.prevent="isDragging = true"
-              @dragleave.prevent="isDragging = false"
-              @drop.prevent="handleFileDrop"
-              :class="{ 'border-indigo-500 bg-indigo-500/5': isDragging }"
-            >
-              <input
-                ref="fileInput"
-                type="file"
-                accept=".txt,.md"
-                class="hidden"
-                @change="handleFileUpload"
-              />
-              <svg class="w-12 h-12 mx-auto text-slate-500 mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
-                  d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+          <!-- 搜索 + 筛选栏 -->
+          <div class="flex items-center gap-3">
+            <!-- 搜索框 -->
+            <div class="relative">
+              <svg class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
               </svg>
-              <p class="text-slate-400 text-sm">
-                拖拽 .txt / .md 文件到此处，或点击上传
-              </p>
-              <p class="text-slate-500 text-xs mt-1">建议至少包含 3 个章节</p>
+              <input
+                v-model="searchKeyword"
+                @input="handleSearchInput"
+                type="text"
+                placeholder="搜索项目..."
+                class="pl-9 pr-3 py-1.5 w-48 bg-slate-800/80 border border-slate-600 rounded-lg text-sm text-slate-200 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/50 focus:border-transparent"
+              />
             </div>
 
-            <!-- 文本粘贴区 -->
-            <textarea
-              v-model="novelText"
-              placeholder="或者直接在此粘贴小说内容..."
-              class="w-full h-64 bg-slate-900/50 border border-slate-600 rounded-lg p-4 text-slate-200 placeholder-slate-500 resize-y focus:outline-none focus:ring-2 focus:ring-indigo-500/50 focus:border-transparent"
-            ></textarea>
+            <!-- 状态筛选 -->
+            <select
+              v-model="statusFilter"
+              @change="fetchProjects(1)"
+              class="bg-slate-800/80 border border-slate-600 rounded-lg px-3 py-1.5 text-sm text-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500/50"
+            >
+              <option value="">全部状态</option>
+              <option value="draft">草稿</option>
+              <option value="completed">已完成</option>
+              <option value="archived">已归档</option>
+            </select>
 
-            <div class="flex justify-between items-center mt-2">
-              <span class="text-xs text-slate-500">{{ novelText.length }} 字符</span>
-              <button
-                v-if="novelText"
-                @click="novelText = ''"
-                class="text-xs text-slate-500 hover:text-red-400 transition-colors"
-              >
-                清空文本
+            <!-- 新建项目按钮 -->
+            <button
+              @click="showCreateDialog = true"
+              class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium bg-indigo-600 hover:bg-indigo-500 text-white transition-colors"
+            >
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
+              </svg>
+              新建项目
+            </button>
+          </div>
+        </div>
+
+        <!-- 加载状态 -->
+        <div v-if="loadingProjects && !projectList.projects.length" class="bg-slate-800/60 backdrop-blur-sm rounded-xl border border-slate-700/50 p-12 text-center">
+          <svg class="animate-spin w-10 h-10 mx-auto text-indigo-400 mb-4" fill="none" viewBox="0 0 24 24">
+            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+          </svg>
+          <p class="text-slate-400">正在加载项目列表...</p>
+        </div>
+
+        <!-- 错误状态 -->
+        <div v-else-if="loadError" class="bg-red-900/20 backdrop-blur-sm rounded-xl border border-red-700/30 p-8 text-center">
+          <svg class="w-10 h-10 mx-auto text-red-400 mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z" />
+          </svg>
+          <p class="text-red-300 mb-1">{{ loadError }}</p>
+          <p class="text-red-400/60 text-sm mb-4">请检查后端服务是否正常运行</p>
+          <button @click="retryLoadProjects"
+            class="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium bg-red-600/20 hover:bg-red-600/30 text-red-300 border border-red-600/30 transition-colors">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+            </svg>
+            重试加载
+          </button>
+        </div>
+
+        <!-- 空状态 -->
+        <div v-else-if="!projectList.projects.length && !loadingProjects" class="bg-slate-800/40 backdrop-blur-sm rounded-xl border border-slate-700/30 p-12 text-center">
+          <svg class="w-14 h-14 mx-auto text-slate-600 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
+          </svg>
+          <p class="text-slate-400 mb-1">暂无项目</p>
+          <p class="text-slate-500 text-sm">点击「新建项目」或直接在下方生成剧本，系统将自动为您创建项目</p>
+        </div>
+
+        <!-- 项目卡片网格 -->
+        <div v-else class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          <div
+            v-for="proj in projectList.projects"
+            :key="proj.id"
+            class="group bg-slate-800/60 backdrop-blur-sm rounded-xl border border-slate-700/50 p-5 hover:border-indigo-500/40 hover:bg-slate-800/80 transition-all duration-200 cursor-pointer relative overflow-hidden"
+            @click="openProject(proj)"
+          >
+            <!-- 状态标签 -->
+            <div class="absolute top-4 right-4">
+              <span :class="statusBadgeClass(proj.status)" class="px-2 py-0.5 text-xs font-medium rounded-full">
+                {{ statusLabel(proj.status) }}
+              </span>
+            </div>
+
+            <!-- 项目标题 -->
+            <h3 class="text-white font-medium pr-16 group-hover:text-indigo-300 transition-colors line-clamp-1">{{ proj.title }}</h3>
+
+            <!-- 描述 -->
+            <p v-if="proj.description" class="text-slate-400 text-sm mt-1 line-clamp-2">{{ proj.description }}</p>
+
+            <!-- 信息行 -->
+            <div class="mt-4 pt-3 border-t border-slate-700/50 grid grid-cols-2 gap-y-1.5 text-xs">
+              <div class="flex items-center gap-1.5 text-slate-500">
+                <svg class="w-3.5 h-3.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z" />
+                </svg>
+                <span>{{ styleLabel(proj.style) }}</span>
+              </div>
+              <div class="flex items-center gap-1.5 text-slate-500">
+                <svg class="w-3.5 h-3.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+                </svg>
+                <span>{{ proj.owner || 'anonymous' }}</span>
+              </div>
+              <div class="flex items-center gap-1.5 text-slate-500 col-span-2">
+                <svg class="w-3.5 h-3.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+                <span>{{ formatTime(proj.created_at) }}</span>
+              </div>
+            </div>
+
+            <!-- 操作按钮（hover 显示） -->
+            <div class="mt-3 pt-3 border-t border-slate-700/50 flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+              <button @click.stop="openProject(proj)"
+                class="flex-1 py-1.5 text-xs rounded-md bg-indigo-600/20 hover:bg-indigo-600/30 text-indigo-300 transition-colors">
+                打开编辑
+              </button>
+              <button @click.stop="confirmDelete(proj)"
+                class="py-1.5 px-2.5 text-xs rounded-md bg-red-600/10 hover:bg-red-600/20 text-red-400 transition-colors">
+                删除
               </button>
             </div>
           </div>
         </div>
 
-        <!-- 右侧：配置面板 -->
-        <div class="space-y-6">
-          <!-- 剧本风格 -->
-          <div class="bg-slate-800/60 backdrop-blur-sm rounded-xl border border-slate-700/50 p-6">
-            <label class="block text-sm font-medium text-slate-300 mb-3">剧本风格</label>
-            <select
-              v-model="config.style"
-              class="w-full bg-slate-900/50 border border-slate-600 rounded-lg px-3 py-2.5 text-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500/50"
-            >
-              <option value="short_drama">短剧</option>
-              <option value="film">电影</option>
-              <option value="stage">舞台剧</option>
-            </select>
-          </div>
+        <!-- 分页控制 -->
+        <div v-if="projectList.total > projectList.page_size" class="flex items-center justify-center gap-4 mt-6 pt-4">
+          <button
+            @click="fetchProjects(projectList.page - 1)"
+            :disabled="projectList.page <= 1 || loadingProjects"
+            class="px-3 py-1.5 text-sm rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+          >
+            上一页
+          </button>
+          <span class="text-sm text-slate-400">
+            第 {{ projectList.page }} / {{ totalPages }} 页 (共 {{ projectList.total }} 条)
+          </span>
+          <button
+            @click="fetchProjects(projectList.page + 1)"
+            :disabled="projectList.page >= totalPages || loadingProjects"
+            class="px-3 py-1.5 text-sm rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+          >
+            下一页
+          </button>
+        </div>
+      </section>
 
-          <!-- 功能开关 -->
-          <div class="bg-slate-800/60 backdrop-blur-sm rounded-xl border border-slate-700/50 p-6">
-            <label class="block text-sm font-medium text-slate-300 mb-4">功能选项</label>
-            <div class="space-y-3">
-              <label class="flex items-center justify-between cursor-pointer group">
-                <span class="text-sm text-slate-300 group-hover:text-white transition-colors">盲演模式</span>
-                <input type="checkbox" v-model="config.blindActingMode"
-                  class="w-4 h-4 rounded border-slate-600 text-indigo-500 focus:ring-indigo-500/50" />
-              </label>
-              <label class="flex items-center justify-between cursor-pointer group">
-                <span class="text-sm text-slate-300 group-hover:text-white transition-colors">因果图谱</span>
-                <input type="checkbox" v-model="config.includeCausalGraph"
-                  class="w-4 h-4 rounded border-slate-600 text-indigo-500 focus:ring-indigo-500/50" />
-              </label>
-              <label class="flex items-center justify-between cursor-pointer group">
-                <span class="text-sm text-slate-300 group-hover:text-white transition-colors">关系网络</span>
-                <input type="checkbox" v-model="config.includeRelationNetwork"
-                  class="w-4 h-4 rounded border-slate-600 text-indigo-500 focus:ring-indigo-500/50" />
-              </label>
-              <label class="flex items-center justify-between cursor-pointer group">
-                <span class="text-sm text-slate-300 group-hover:text-white transition-colors">媒体提示</span>
-                <input type="checkbox" v-model="config.includeMediaHints"
-                  class="w-4 h-4 rounded border-slate-600 text-indigo-500 focus:ring-indigo-500/50" />
-              </label>
+      <!-- 分割线 -->
+      <div class="border-t border-slate-700/30"></div>
+
+      <!-- ==================== 原有：小说转剧本功能区 ==================== -->
+      <section>
+        <div class="text-center mb-8">
+          <h2 class="text-3xl font-bold text-white mb-3">
+            小说转剧本
+            <span class="bg-gradient-to-r from-indigo-400 to-purple-400 bg-clip-text text-transparent">
+              智能创作平台
+            </span>
+          </h2>
+          <p class="text-base text-slate-400 max-w-2xl mx-auto">
+            上传你的小说文本，AI 将自动分析情感节奏、提取角色、生成专业剧本，
+            支持因果图谱、关系网络、盲演模式等创新功能。
+          </p>
+        </div>
+
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          <!-- 左侧：小说输入 -->
+          <div class="lg:col-span-2 space-y-6">
+            <div class="bg-slate-800/60 backdrop-blur-sm rounded-xl border border-slate-700/50 p-6">
+              <label class="block text-sm font-medium text-slate-300 mb-3">小说文本输入</label>
+
+              <!-- 文件上传 -->
+              <div
+                class="border-2 border-dashed border-slate-600 rounded-lg p-8 text-center hover:border-indigo-500/50 transition-colors cursor-pointer mb-4"
+                @click="triggerFileInput"
+                @dragover.prevent="isDragging = true"
+                @dragleave.prevent="isDragging = false"
+                @drop.prevent="handleFileDrop"
+                :class="{ 'border-indigo-500 bg-indigo-500/5': isDragging }"
+              >
+                <input ref="fileInput" type="file" accept=".txt,.md" class="hidden" @change="handleFileUpload" />
+                <svg class="w-12 h-12 mx-auto text-slate-500 mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
+                    d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+                </svg>
+                <p class="text-slate-400 text-sm">拖拽 .txt / .md 文件到此处，或点击上传</p>
+                <p class="text-slate-500 text-xs mt-1">建议至少包含 3 个章节</p>
+              </div>
+
+              <!-- 文本粘贴区 -->
+              <textarea
+                v-model="novelText"
+                placeholder="或者直接在此粘贴小说内容..."
+                class="w-full h-64 bg-slate-900/50 border border-slate-600 rounded-lg p-4 text-slate-200 placeholder-slate-500 resize-y focus:outline-none focus:ring-2 focus:ring-indigo-500/50 focus:border-transparent"
+              ></textarea>
+
+              <div class="flex justify-between items-center mt-2">
+                <span class="text-xs text-slate-500">{{ novelText.length }} 字符</span>
+                <button v-if="novelText" @click="novelText = ''" class="text-xs text-slate-500 hover:text-red-400 transition-colors">清空文本</button>
+              </div>
             </div>
           </div>
 
-          <!-- 生成按钮 -->
-          <button
-            @click="generateScript"
-            :disabled="!novelText.trim() || isGenerating"
-            class="w-full py-3 px-4 rounded-xl font-semibold text-white transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 hover:shadow-lg hover:shadow-indigo-500/25 active:scale-[0.98]"
-          >
-            <span v-if="!isGenerating" class="flex items-center justify-center gap-2">
-              <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                  d="M13 10V3L4 14h7v7l9-11h-7z" />
-              </svg>
-              生成剧本
-            </span>
-            <span v-else class="flex items-center justify-center gap-2">
-              <svg class="animate-spin w-5 h-5" fill="none" viewBox="0 0 24 24">
-                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-                <path class="opacity-75" fill="currentColor"
-                  d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z">
-                </path>
-              </svg>
-              正在分析并生成...
-            </span>
+          <!-- 右侧：配置面板 -->
+          <div class="space-y-6">
+            <!-- 剧本风格 -->
+            <div class="bg-slate-800/60 backdrop-blur-sm rounded-xl border border-slate-700/50 p-6">
+              <label class="block text-sm font-medium text-slate-300 mb-3">剧本风格</label>
+              <select v-model="config.style"
+                class="w-full bg-slate-900/50 border border-slate-600 rounded-lg px-3 py-2.5 text-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500/50">
+                <option value="short_drama">短剧</option>
+                <option value="film">电影</option>
+                <option value="stage">舞台剧</option>
+              </select>
+            </div>
+
+            <!-- 功能开关 -->
+            <div class="bg-slate-800/60 backdrop-blur-sm rounded-xl border border-slate-700/50 p-6">
+              <label class="block text-sm font-medium text-slate-300 mb-4">功能选项</label>
+              <div class="space-y-3">
+                <label class="flex items-center justify-between cursor-pointer group">
+                  <span class="text-sm text-slate-300 group-hover:text-white transition-colors">盲演模式</span>
+                  <input type="checkbox" v-model="config.blindActingMode" class="w-4 h-4 rounded border-slate-600 text-indigo-500 focus:ring-indigo-500/50" />
+                </label>
+                <label class="flex items-center justify-between cursor-pointer group">
+                  <span class="text-sm text-slate-300 group-hover:text-white transition-colors">因果图谱</span>
+                  <input type="checkbox" v-model="config.includeCausalGraph" class="w-4 h-4 rounded border-slate-600 text-indigo-500 focus:ring-indigo-500/50" />
+                </label>
+                <label class="flex items-center justify-between cursor-pointer group">
+                  <span class="text-sm text-slate-300 group-hover:text-white transition-colors">关系网络</span>
+                  <input type="checkbox" v-model="config.includeRelationNetwork" class="w-4 h-4 rounded border-slate-600 text-indigo-500 focus:ring-indigo-500/50" />
+                </label>
+                <label class="flex items-center justify-between cursor-pointer group">
+                  <span class="text-sm text-slate-300 group-hover:text-white transition-colors">媒体提示</span>
+                  <input type="checkbox" v-model="config.includeMediaHints" class="w-4 h-4 rounded border-slate-600 text-indigo-500 focus:ring-indigo-500/50" />
+                </label>
+              </div>
+            </div>
+
+            <!-- 生成按钮 -->
+            <button
+              @click="generateScript"
+              :disabled="!novelText.trim() || isGenerating"
+              class="w-full py-3 px-4 rounded-xl font-semibold text-white transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 hover:shadow-lg hover:shadow-indigo-500/25 active:scale-[0.98]"
+            >
+              <span v-if="!isGenerating" class="flex items-center justify-center gap-2">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z" />
+                </svg>
+                生成剧本
+              </span>
+              <span v-else class="flex items-center justify-center gap-2">
+                <svg class="animate-spin w-5 h-5" fill="none" viewBox="0 0 24 24">
+                  <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                  <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                </svg>
+                正在分析并生成...
+              </span>
+            </button>
+          </div>
+        </div>
+
+        <!-- 示例小说按钮 -->
+        <div class="mt-6 text-center">
+          <button @click="loadSampleNovel"
+            class="text-sm text-slate-400 hover:text-indigo-400 transition-colors underline underline-offset-4">
+            没有小说？点击加载示例数据体验完整流程
           </button>
         </div>
-      </div>
-
-      <!-- 示例小说按钮 -->
-      <div class="mt-8 text-center">
-        <button
-          @click="loadSampleNovel"
-          class="text-sm text-slate-400 hover:text-indigo-400 transition-colors underline underline-offset-4"
-        >
-          没有小说？点击加载示例数据体验完整流程
-        </button>
-      </div>
+      </section>
     </main>
+
+    <!-- 新建项目弹窗 -->
+    <Teleport to="body">
+      <div v-if="showCreateDialog" class="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm" @click.self="showCreateDialog = false">
+        <div class="bg-slate-800 rounded-2xl border border-slate-700 shadow-2xl w-full max-w-md p-6">
+          <h3 class="text-lg font-semibold text-white mb-4">新建项目</h3>
+          <div class="space-y-4">
+            <div>
+              <label class="block text-sm text-slate-300 mb-1.5">项目名称 *</label>
+              <input v-model="newProject.title" type="text" placeholder="例如：校园爱情改编剧本"
+                class="w-full bg-slate-900/70 border border-slate-600 rounded-lg px-3 py-2 text-slate-200 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/50" />
+            </div>
+            <div>
+              <label class="block text-sm text-slate-300 mb-1.5">描述（可选）</label>
+              <textarea v-model="newProject.description" rows="2" placeholder="简要描述这个项目的目标..."
+                class="w-full bg-slate-900/70 border border-slate-600 rounded-lg px-3 py-2 text-slate-200 placeholder-slate-500 resize-none focus:outline-none focus:ring-2 focus:ring-indigo-500/50"></textarea>
+            </div>
+            <div>
+              <label class="block text-sm text-slate-300 mb-1.5">剧本风格</label>
+              <select v-model="newProject.style"
+                class="w-full bg-slate-900/70 border border-slate-600 rounded-lg px-3 py-2 text-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500/50">
+                <option value="short_drama">短剧</option>
+                <option value="film">电影</option>
+                <option value="stage">舞台剧</option>
+              </select>
+            </div>
+          </div>
+          <div class="flex justify-end gap-3 mt-6">
+            <button @click="showCreateDialog = false"
+              class="px-4 py-2 rounded-lg text-sm text-slate-300 hover:bg-slate-700 transition-colors">
+              取消
+            </button>
+            <button @click="createProject" :disabled="!newProject.title.trim() || creatingProject"
+              class="px-4 py-2 rounded-lg text-sm font-medium bg-indigo-600 hover:bg-indigo-500 text-white disabled:opacity-50 transition-colors">
+              {{ creatingProject ? '创建中...' : '创建' }}
+            </button>
+          </div>
+        </div>
+      </div>
+    </Teleport>
+
+    <!-- 删除确认弹窗 -->
+    <Teleport to="body">
+      <div v-if="deleteTarget" class="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm" @click.self="deleteTarget = null">
+        <div class="bg-slate-800 rounded-2xl border border-slate-700 shadow-2xl w-full max-w-sm p-6 text-center">
+          <div class="w-12 h-12 mx-auto mb-4 rounded-full bg-red-600/10 flex items-center justify-center">
+            <svg class="w-6 h-6 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+            </svg>
+          </div>
+          <h3 class="text-lg font-semibold text-white mb-2">确认删除？</h3>
+          <p class="text-sm text-slate-400 mb-5">删除项目「{{ deleteTarget?.title }}」后将无法恢复。</p>
+          <div class="flex justify-center gap-3">
+            <button @click="deleteTarget = null"
+              class="px-4 py-2 rounded-lg text-sm text-slate-300 hover:bg-slate-700 transition-colors">
+              取消
+            </button>
+            <button @click="doDelete" :disabled="deleting"
+              class="px-4 py-2 rounded-lg text-sm font-medium bg-red-600 hover:bg-red-500 text-white disabled:opacity-50 transition-colors">
+              {{ deleting ? '删除中...' : '确认删除' }}
+            </button>
+          </div>
+        </div>
+      </div>
+    </Teleport>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, reactive } from 'vue'
+import { ref, reactive, computed, onMounted } from 'vue'
+import { storeToRefs } from 'pinia'
 import { useRouter } from 'vue-router'
+import { useProjectStore } from '../stores/projectStore'
 
 const router = useRouter()
+const projectStore = useProjectStore()
 
-// 状态
+// ==================== 项目管理状态（使用全局 Store） ====================
+const { projectList, loading: loadingProjects } = storeToRefs(projectStore)
+// 兼容模板中的 loadError
+const loadError = computed(() => projectStore.error || '')
+const searchKeyword = ref('')
+const statusFilter = ref('')
+const showCreateDialog = ref(false)
+const creatingProject = ref(false)
+const deleteTarget = ref<any>(null)
+const deleting = ref(false)
+
+// 防抖定时器
+let searchTimer: ReturnType<typeof setTimeout> | null = null
+
+// 新建项目表单
+const newProject = reactive({
+  title: '',
+  description: '',
+  style: 'short_drama',
+})
+
+// 分页总页数
+const totalPages = computed(() => Math.ceil(projectList.value.total / projectList.value.page_size))
+
+// ==================== 原有功能状态 ====================
 const novelText = ref('')
 const fileInput = ref<HTMLInputElement | null>(null)
 const isDragging = ref(false)
 const isGenerating = ref(false)
 
-// 配置
 const config = reactive({
   style: 'short_drama',
   blindActingMode: true,
@@ -191,40 +430,161 @@ const config = reactive({
   includeMediaHints: true,
 })
 
-// 触发文件选择
+// ==================== 项目 API 操作 ====================
+
+async function fetchProjects(page: number = 1) {
+  await projectStore.fetchProjects(page, { search: searchKeyword.value, status: statusFilter.value })
+}
+
+function handleSearchInput() {
+  if (searchTimer) clearTimeout(searchTimer)
+  searchTimer = setTimeout(() => fetchProjects(1), 350)
+}
+
+function retryLoadProjects() {
+  loadError.value = ''
+  fetchProjects(1)
+}
+
+function refreshProjects() {
+  fetchProjects(projectList.value.page)
+}
+
+async function createProject() {
+  if (!newProject.title.trim()) return
+  creatingProject.value = true
+
+  try {
+    const res = await fetch('/api/projects', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(newProject),
+    })
+
+    if (!res.ok) throw new Error(`HTTP ${res.status}`)
+
+    const created = await res.json()
+    showCreateDialog.value = false
+    newProject.title = ''
+    newProject.description = ''
+    newProject.style = 'short_drama'
+    // 乐观更新：直接追加到列表，无需重新请求
+    projectStore.addProjectToLocal(created)
+  } catch (e: any) {
+    alert('创建失败: ' + e.message)
+  } finally {
+    creatingProject.value = false
+  }
+}
+
+function confirmDelete(proj: any) {
+  deleteTarget.value = proj
+}
+
+async function doDelete() {
+  if (!deleteTarget.value) return
+  deleting.value = true
+
+  try {
+    const res = await fetch(`/api/projects/${deleteTarget.value.id}`, { method: 'DELETE' })
+    if (!res.ok) throw new Error(`HTTP ${res.status}`)
+
+    const deletedId = deleteTarget.value.id
+    deleteTarget.value = null
+    // 乐观更新：直接从列表移除
+    projectStore.removeProjectLocal(deletedId)
+  } catch (e: any) {
+    alert('删除失败: ' + e.message)
+  } finally {
+    deleting.value = false
+  }
+}
+
+async function openProject(proj: any) {
+  if (proj.script_id) {
+    // 从后端加载剧本数据到 sessionStorage，确保编辑器能正确显示
+    try {
+      const res = await fetch(`/api/scripts/${proj.script_id}`)
+      if (res.ok) {
+        const yamlText = await res.text()
+        sessionStorage.setItem('script_yaml', yamlText)
+      } else {
+        console.warn('加载剧本失败，将以空编辑器打开')
+      }
+    } catch (e) {
+      console.error('请求剧本数据出错:', e)
+    }
+    router.push('/editor')
+  } else {
+    alert('该项目暂无关联剧本，请在下方生成剧本')
+  }
+}
+
+// ==================== 辅助函数 ====================
+
+function styleLabel(style: string): string {
+  const map: Record<string, string> = { short_drama: '短剧', film: '电影', stage: '舞台剧', anime: '动漫' }
+  return map[style] || style
+}
+
+function statusLabel(status: string): string {
+  const map: Record<string, string> = { draft: '草稿', completed: '已完成', archived: '已归档' }
+  return map[status] || status
+}
+
+function statusBadgeClass(status: string): string {
+  const map: Record<string, string> = {
+    draft: 'bg-yellow-500/20 text-yellow-300',
+    completed: 'bg-green-500/20 text-green-300',
+    archived: 'bg-slate-500/20 text-slate-400',
+  }
+  return map[status] || 'bg-slate-500/20 text-slate-400'
+}
+
+function formatTime(isoStr: string): string {
+  try {
+    const d = new Date(isoStr)
+    const now = new Date()
+    const diffMs = now.getTime() - d.getTime()
+    const diffMin = Math.floor(diffMs / 60000)
+    if (diffMin < 1) return '刚刚'
+    if (diffMin < 60) return `${diffMin} 分钟前`
+    const diffHour = Math.floor(diffMin / 60)
+    if (diffHour < 24) return `${diffHour} 小时前`
+    const diffDay = Math.floor(diffHour / 24)
+    if (diffDay < 30) return `${diffDay} 天前`
+    return d.toLocaleDateString('zh-CN')
+  } catch {
+    return isoStr
+  }
+}
+
+// ==================== 原有功能函数 ====================
+
 function triggerFileInput() {
   fileInput.value?.click()
 }
 
-// 处理文件上传
 function handleFileUpload(event: Event) {
   const target = event.target as HTMLInputElement
   const file = target.files?.[0]
   if (file) {
     const reader = new FileReader()
-    reader.onload = (e) => {
-      novelText.value = e.target?.result as string || ''
-    }
+    reader.onload = (e) => { novelText.value = e.target?.result as string || '' }
     reader.readAsText(file)
   }
 }
 
-// 处理拖拽
 function handleFileDrop(event: DragEvent) {
   isDragging.value = false
   const file = event.dataTransfer?.files[0]
   if (file && (file.name.endsWith('.txt') || file.name.endsWith('.md'))) {
     const reader = new FileReader()
-    reader.onload = (e) => {
-      novelText.value = e.target?.result as string || ''
-    }
+    reader.onload = (e) => { novelText.value = e.target?.result as string || '' }
     reader.readAsText(file)
   }
 }
 
-// 测试 API 连接（已移除：API 配置固定在后端 .env）
-
-// 加载示例小说
 function loadSampleNovel() {
   novelText.value = `第一章 初遇
 
@@ -331,23 +691,18 @@ G……顾言？
 
 "故事的下一章，我们一起写好吗？"
 
-窗外，夕阳正好。
-`
+窗外，夕阳正好。`
 }
 
-// 生成剧本
 async function generateScript() {
   if (!novelText.value.trim()) return
 
   isGenerating.value = true
 
   try {
-    // 调用后端生成剧本接口（API Key 由后端 .env 配置管理）
     const response = await fetch('/api/generate-script', {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         text: novelText.value,
         config: {
@@ -361,15 +716,28 @@ async function generateScript() {
       }),
     })
 
-    if (!response.ok) {
-      throw new Error(`生成失败: ${response.status}`)
-    }
+    if (!response.ok) throw new Error(`生成失败: ${response.status}`)
 
     const yamlText = await response.text()
 
-    // 将 YAML 存储到 sessionStorage，跳转到编辑器
-    sessionStorage.setItem('script_yaml', yamlText)
+    // 乐观更新：在导航前先将项目添加到"我的项目"列表
+    // （后端会异步保存真实项目，返回首页时会自动同步）
+    const now = new Date().toISOString()
+    const styleMap: Record<string, string> = { short_drama: '短剧', film: '电影', stage: '舞台剧' }
+    projectStore.addProjectToLocal({
+      id: 'pending-' + Date.now(), // 临时 ID，后端保存后会被真实数据覆盖
+      title: `${styleMap[config.style] || '短剧'} - ${new Date().toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })}`,
+      description: `基于小说文本生成的${styleMap[config.style] || ''}风格剧本`,
+      style: config.style,
+      status: 'completed',
+      owner: 'anonymous',
+      novel_preview: novelText.value.slice(0, 200),
+      script_id: null,
+      created_at: now,
+      updated_at: now,
+    } as any)
 
+    sessionStorage.setItem('script_yaml', yamlText)
     router.push('/editor')
   } catch (error: any) {
     console.error('生成剧本失败:', error)
@@ -378,4 +746,10 @@ async function generateScript() {
     isGenerating.value = false
   }
 }
+
+// ==================== 初始化 ====================
+
+onMounted(() => {
+  fetchProjects(1)
+})
 </script>

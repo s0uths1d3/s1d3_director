@@ -173,7 +173,44 @@ pub async fn generate_script_handler(
 
     match script_generator::generate_script(&body.text, &body.config, &api_key, &base_url).await {
         Ok(yaml_content) => {
-            // 使用 Response Builder 返回 YAML 文本
+            // 异步保存剧本和项目到数据库（不阻塞响应）
+            if let Some(ref db) = state.db {
+                let db_clone = db.clone();
+                let yaml_clone = yaml_content.clone();
+                let style_clone = body.config.style.clone();
+                let text_preview: String = body.text.chars().take(500).collect();
+
+                tokio::spawn(async move {
+                    // 保存剧本到 scripts 表
+                    let title = format!("改编剧本 - {}", chrono::Local::now().format("%Y-%m-%d %H:%M"));
+                    let script_result: Result<(sqlx::types::Uuid,), _> = sqlx::query_as(
+                        "INSERT INTO scripts (title, source_novel, style, yaml_content) VALUES ($1, $2, $3, $4) RETURNING id"
+                    )
+                    .bind(&title)
+                    .bind(&text_preview)
+                    .bind(&style_clone)
+                    .bind(&yaml_clone)
+                    .fetch_one(&db_clone)
+                    .await;
+
+                    if let Ok((script_id,)) = script_result {
+                        // 创建/更新关联的项目
+                        let project_title = format!("{} - {}", style_to_label(&style_clone), chrono::Local::now().format("%m/%d %H:%M"));
+                        sqlx::query(
+                            "INSERT INTO projects (title, description, style, status, owner, novel_preview, script_id) VALUES ($1, $2, $3, 'completed', 'anonymous', $4, $5)"
+                        )
+                        .bind(&project_title)
+                        .bind(format!("基于小说文本生成的{}风格剧本", style_to_label(&style_clone)))
+                        .bind(&style_clone)
+                        .bind(&text_preview)
+                        .bind(script_id.to_string())
+                        .execute(&db_clone)
+                        .await.ok();
+                        tracing::info!(script_id = %script_id, "剧本及项目已自动保存");
+                    }
+                });
+            }
+
             axum::http::Response::builder()
                 .status(StatusCode::OK)
                 .header(header::CONTENT_TYPE, "application/x-yaml; charset=utf-8")
@@ -187,6 +224,16 @@ pub async fn generate_script_handler(
             tracing::error!(error = %e, "generate_script failed");
             error_response(StatusCode::INTERNAL_SERVER_ERROR, &format!("生成失败: {}", e))
         }
+    }
+}
+
+/// 风格代码转中文标签
+fn style_to_label(style: &str) -> &'static str {
+    match style {
+        "film" => "电影",
+        "stage" => "舞台剧",
+        "anime" => "动漫",
+        _ => "短剧",
     }
 }
 
@@ -390,4 +437,246 @@ fn causal_graph_data_to_response(data: &CausalGraphData) -> CausalGraphResponse 
         .collect();
 
     CausalGraphResponse { events, edges }
+}
+
+// ==================== 剧本数据 API ====================
+
+/// 根据 ID 获取剧本 YAML 内容
+pub async fn get_script(
+    State(state): State<AppState>,
+    axum::extract::Path(id): axum::extract::Path<String>,
+) -> Response {
+    let db = match &state.db {
+        Some(pool) => pool,
+        None => return error_response(StatusCode::SERVICE_UNAVAILABLE, "数据库不可用"),
+    };
+
+    let uuid_id = match sqlx::types::Uuid::parse_str(&id) {
+        Ok(u) => u,
+        Err(_) => return error_response(StatusCode::BAD_REQUEST, "无效的剧本ID格式"),
+    };
+
+    let row: Option<(String,)> = sqlx::query_as("SELECT yaml_content FROM scripts WHERE id = $1")
+        .bind(uuid_id)
+        .fetch_optional(db)
+        .await
+        .unwrap_or(None);
+
+    match row {
+        Some((yaml_content,)) => {
+            axum::http::Response::builder()
+                .status(StatusCode::OK)
+                .header(header::CONTENT_TYPE, "application/x-yaml; charset=utf-8")
+                .body(yaml_content.into())
+                .unwrap_or_else(|e| {
+                    tracing::error!("Failed to build script response: {}", e);
+                    error_response(StatusCode::INTERNAL_SERVER_ERROR, "构建响应失败")
+                })
+        }
+        None => error_response(StatusCode::NOT_FOUND, "剧本不存在"),
+    }
+}
+
+// ==================== 项目管理 API ====================
+
+/// 获取项目列表（支持分页、搜索、筛选）
+pub async fn list_projects(
+    State(state): State<AppState>,
+    axum::extract::Query(params): axum::extract::Query<std::collections::HashMap<String, String>>,
+) -> Response {
+    let db = match &state.db {
+        Some(pool) => pool,
+        None => return Json(ProjectListResponse { projects: vec![], total: 0, page: 1, page_size: 10 }).into_response(),
+    };
+
+    let page: i64 = params.get("page").and_then(|p| p.parse().ok()).unwrap_or(1);
+    let page_size: i64 = params.get("page_size").and_then(|s| s.parse().ok()).unwrap_or(10).min(50);
+    let search = params.get("search").cloned().unwrap_or_default();
+    let status_filter = params.get("status").cloned();
+    let offset = (page - 1) * page_size;
+
+    // 构建查询
+    let mut query_str = String::from(
+        "SELECT id, title, description, style, status, owner, novel_preview, script_id, created_at, updated_at FROM projects WHERE 1=1"
+    );
+    let mut count_str = String::from("SELECT COUNT(*) FROM projects WHERE 1=1");
+
+    if !search.is_empty() {
+        query_str.push_str(&format!(" AND (title ILIKE '%{}%' OR description ILIKE '%{}%')", search.replace('\'', "''"), search.replace('\'', "''")));
+        count_str.push_str(&format!(" AND (title ILIKE '%{}%' OR description ILIKE '%{}%')", search.replace('\'', "''"), search.replace('\'', "''")));
+    }
+    if let Some(ref s) = status_filter {
+        query_str.push_str(&format!(" AND status = '{}'", s.replace('\'', "''")));
+        count_str.push_str(&format!(" AND status = '{}'", s.replace('\'', "''")));
+    }
+
+    query_str.push_str(&format!(" ORDER BY created_at DESC LIMIT {} OFFSET {}", page_size, offset));
+
+    let total: i64 = sqlx::query_as::<_, (i64,)>(&count_str)
+        .fetch_one(db)
+        .await
+        .map(|r| r.0)
+        .unwrap_or(0);
+
+    let rows = sqlx::query_as::<_, (sqlx::types::Uuid, String, String, String, String, String, Option<String>, Option<sqlx::types::Uuid>, chrono::DateTime<chrono::Utc>, chrono::DateTime<chrono::Utc>)>(&query_str)
+        .fetch_all(db)
+        .await
+        .unwrap_or_default();
+
+    let projects: Vec<Project> = rows.into_iter().map(|(id, title, description, style, status, owner, novel_preview, script_id, created_at, updated_at)| Project {
+        id: id.to_string(), title, description, style, status, owner,
+        novel_preview,
+        script_id: script_id.map(|s| s.to_string()),
+        created_at: created_at.format("%Y-%m-%dT%H:%M:%SZ").to_string(),
+        updated_at: updated_at.format("%Y-%m-%dT%H:%M:%SZ").to_string(),
+    }).collect();
+
+    Json(ProjectListResponse { projects, total, page, page_size }).into_response()
+}
+
+/// 创建新项目
+pub async fn create_project(
+    State(state): State<AppState>,
+    Json(body): Json<CreateProjectRequest>,
+) -> Response {
+    let db = match &state.db {
+        Some(pool) => pool,
+        None => return error_response(StatusCode::SERVICE_UNAVAILABLE, "数据库不可用"),
+    };
+
+    let style = body.style.unwrap_or_else(|| "short_drama".to_string());
+    let owner = body.owner.unwrap_or_else(|| "anonymous".to_string());
+
+    let row: Result<(sqlx::types::Uuid,), _> = sqlx::query_as(
+        "INSERT INTO projects (title, description, style, owner) VALUES ($1, $2, $3, $4) RETURNING id"
+    )
+    .bind(&body.title)
+    .bind(&body.description)
+    .bind(&style)
+    .bind(&owner)
+    .fetch_one(db)
+    .await;
+
+    match row {
+        Ok((id,)) => {
+            tracing::info!(project_id = %id, title = %body.title, "新项目已创建");
+            // 返回新创建的项目
+            get_project_by_id(db, &id.to_string()).await
+        }
+        Err(e) => error_response(StatusCode::INTERNAL_SERVER_ERROR, &format!("创建项目失败: {}", e)),
+    }
+}
+
+/// 获取单个项目详情
+pub async fn get_project(
+    State(state): State<AppState>,
+    axum::extract::Path(id): axum::extract::Path<String>,
+) -> Response {
+    let db = match &state.db {
+        Some(pool) => pool,
+        None => return error_response(StatusCode::SERVICE_UNAVAILABLE, "数据库不可用"),
+    };
+    get_project_by_id(db, &id).await
+}
+
+/// 更新项目信息
+pub async fn update_project(
+    State(state): State<AppState>,
+    axum::extract::Path(id): axum::extract::Path<String>,
+    Json(body): Json<UpdateProjectRequest>,
+) -> Response {
+    let db = match &state.db {
+        Some(pool) => pool,
+        None => return error_response(StatusCode::SERVICE_UNAVAILABLE, "数据库不可用"),
+    };
+
+    let uuid_id = match sqlx::types::Uuid::parse_str(&id) {
+        Ok(u) => u,
+        Err(_) => return error_response(StatusCode::BAD_REQUEST, "无效的项目ID格式"),
+    };
+
+    // 动态构建 UPDATE 语句
+    let mut sets = Vec::new();
+    if body.title.is_some() { sets.push("title = $2".to_string()); }
+    if body.description.is_some() { sets.push("description = $3".to_string()); }
+    if body.status.is_some() { sets.push("status = $4".to_string()); }
+    if body.style.is_some() { sets.push("style = $5".to_string()); }
+
+    if sets.is_empty() {
+        return get_project_by_id(db, &id).await;
+    }
+
+    sets.push("updated_at = NOW()".to_string());
+    let set_clause = sets.join(", ");
+
+    let result = sqlx::query(&format!("UPDATE projects SET {} WHERE id = $1", set_clause))
+        .bind(uuid_id)
+        .bind(&body.title)
+        .bind(&body.description)
+        .bind(&body.status)
+        .bind(&body.style)
+        .execute(db)
+        .await;
+
+    match result {
+        Ok(res) if res.rows_affected() > 0 => {
+            tracing::info!(project_id = %id, "项目已更新");
+            get_project_by_id(db, &id).await
+        }
+        _ => error_response(StatusCode::NOT_FOUND, "项目不存在"),
+    }
+}
+
+/// 删除项目
+pub async fn delete_project(
+    State(state): State<AppState>,
+    axum::extract::Path(id): axum::extract::Path<String>,
+) -> Response {
+    let db = match &state.db {
+        Some(pool) => pool,
+        None => return error_response(StatusCode::SERVICE_UNAVAILABLE, "数据库不可用"),
+    };
+
+    let uuid_id = match sqlx::types::Uuid::parse_str(&id) {
+        Ok(u) => u,
+        Err(_) => return error_response(StatusCode::BAD_REQUEST, "无效的项目ID格式"),
+    };
+
+    let result = sqlx::query("DELETE FROM projects WHERE id = $1")
+        .bind(uuid_id)
+        .execute(db)
+        .await;
+
+    match result {
+        Ok(res) if res.rows_affected() > 0 => {
+            tracing::info!(project_id = %id, "项目已删除");
+            Json(json!({"success": true, "message": "项目已删除"})).into_response()
+        }
+        _ => error_response(StatusCode::NOT_FOUND, "项目不存在"),
+    }
+}
+
+/// 根据ID获取单个项目的内部辅助函数
+async fn get_project_by_id(db: &sqlx::PgPool, id: &str) -> Response {
+    let row: Option<(sqlx::types::Uuid, String, String, String, String, String, Option<String>, Option<sqlx::types::Uuid>, chrono::DateTime<chrono::Utc>, chrono::DateTime<chrono::Utc>)> =
+        sqlx::query_as(
+            "SELECT id, title, description, style, status, owner, novel_preview, script_id, created_at, updated_at FROM projects WHERE id = $1"
+        )
+        .bind(sqlx::types::Uuid::parse_str(id).unwrap_or_else(|_| sqlx::types::Uuid::nil()))
+        .fetch_optional(db)
+        .await
+        .unwrap_or(None);
+
+    match row {
+        Some((id, title, description, style, status, owner, novel_preview, script_id, created_at, updated_at)) => {
+            Json(Project {
+                id: id.to_string(), title, description, style, status, owner,
+                novel_preview,
+                script_id: script_id.map(|s| s.to_string()),
+                created_at: created_at.format("%Y-%m-%dT%H:%M:%SZ").to_string(),
+                updated_at: updated_at.format("%Y-%m-%dT%H:%M:%SZ").to_string(),
+            }).into_response()
+        }
+        None => error_response(StatusCode::NOT_FOUND, "项目不存在"),
+    }
 }

@@ -112,7 +112,7 @@
 
       <!-- 中间区域：场景卡片列表（自适应宽度） -->
       <main class="flex-1 overflow-auto p-4 space-y-4">
-        <template v-for="scene in scriptStore.scenes" :key="scene.id">
+        <template v-if="loadStatus === 'loaded'" v-for="scene in scriptStore.scenes" :key="scene.id">
           <!-- 场景头部 -->
           <div class="bg-slate-800/50 backdrop-blur-sm rounded-xl border border-slate-700/50 overflow-hidden">
             <div class="px-4 py-3 border-b border-slate-700/30 flex items-center justify-between">
@@ -162,15 +162,45 @@
           </div>
         </template>
 
-        <!-- 空状态 -->
-        <div v-if="!scriptStore.scenes.length" class="flex flex-col items-center justify-center h-full text-slate-500">
+        <!-- 状态展示区：加载中 / 已加载 / 空状态 / 错误 -->
+        <div v-if="loadStatus === 'loading'" class="flex flex-col items-center justify-center h-full text-slate-400">
+          <svg class="animate-spin w-12 h-12 mb-4 text-indigo-400" fill="none" viewBox="0 0 24 24">
+            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+          </svg>
+          <p class="text-sm font-medium">正在加载剧本数据...</p>
+          <p class="text-xs mt-1 text-slate-500">正在解析 YAML 并初始化编辑器</p>
+        </div>
+
+        <div v-else-if="loadStatus === 'error'" class="flex flex-col items-center justify-center h-full">
+          <div class="w-16 h-16 mb-4 rounded-full bg-red-500/10 flex items-center justify-center">
+            <svg class="w-8 h-8 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z" />
+            </svg>
+          </div>
+          <p class="text-sm font-medium text-red-300">剧本数据解析失败</p>
+          <p class="text-xs mt-1 text-slate-500 max-w-xs text-center">{{ loadError }}</p>
+          <div class="mt-4 flex gap-3">
+            <NuxtLink to="/" class="px-4 py-2 rounded-lg text-sm bg-slate-700/60 hover:bg-slate-600/60 text-slate-300 transition-colors">
+              返回首页
+            </NuxtLink>
+            <button @click="retryLoad" class="px-4 py-2 rounded-lg text-sm bg-indigo-600/20 hover:bg-indigo-600/30 text-indigo-300 transition-colors">
+              重试加载
+            </button>
+          </div>
+        </div>
+
+        <div v-else-if="loadStatus === 'empty'" class="flex flex-col items-center justify-center h-full text-slate-500">
           <svg class="w-16 h-16 mb-4 opacity-30" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
           </svg>
           <p class="text-sm">暂无剧本数据</p>
           <p class="text-xs mt-1">请先在首页生成或导入剧本</p>
-          <NuxtLink to="/" class="mt-3 text-xs text-indigo-400 hover:text-indigo-300 underline">
-            返回首页
+          <NuxtLink to="/" class="mt-3 inline-flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs bg-indigo-600/20 hover:bg-indigo-600/30 text-indigo-300 transition-colors">
+            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7" />
+            </svg>
+            返回首页生成剧本
           </NuxtLink>
         </div>
       </main>
@@ -278,14 +308,18 @@ const copilotStore = useCopilotStore()
 const graphStore = useGraphStore()
 const deepSeek = useDeepSeekKey()
 
-// UI 状态
+// ==================== UI 状态 ====================
+type LoadStatus = 'loading' | 'loaded' | 'empty' | 'error'
+
 const leftTab = ref<'causal' | 'relation'>('causal')
 const rightTab = ref<'player' | 'source'>('player')
 const showSettings = ref(false)
 const isSaving = ref(false)
 const yamlSource = ref('')
+const loadStatus = ref<LoadStatus>('loading')
+const loadError = ref('')
 
-// 计算属性
+// ==================== 计算属性 ====================
 const scriptData = computed(() => scriptStore.scriptData)
 
 const emotionalCurveData = computed(() => {
@@ -314,64 +348,97 @@ function emitScriptUpdate() {
   scriptUpdateEvent.value++
 }
 
-// 初始化：从 sessionStorage 加载 YAML
-onMounted(() => {
-  const rawYaml = sessionStorage.getItem('script_yaml')
-  if (rawYaml) {
-    try {
-      const parsed = yaml.load(rawYaml) as any
-      if (parsed) {
-        scriptStore.setScriptData(parsed)
-        scriptStore.loadYaml(rawYaml)
-        yamlSource.value = rawYaml
+// ==================== YAML 初始化（公共逻辑） ====================
 
-        // 初始化图谱数据
-        if (parsed.causal_graph) {
-          // 后端返回格式: { events: [...], edges: [...] }
-          // 转换为 graphStore 格式: nodes + edges
-          const cg = parsed.causal_graph
-          const causalNodes = (cg.events || []).map((e: any) => ({
-            id: e.id,
-            name: e.description || e.id,
-            category: e.chapter ? 'chapter_' + e.chapter : undefined,
-          }))
-          const causalEdges = (cg.edges || []).map((e: any) => ({
-            source: e.from,
-            target: e.to,
-            value: e.strength,
-            label: e.type === 'causal' ? '因果' : e.type === 'temporal' ? '时序' : '情感',
-            lineStyle: {
-              color: e.type === 'causal' ? '#60a5fa' : e.type === 'temporal' ? '#94a3b8' : '#f87171',
-              width: Math.min(3, Math.max(1, e.strength * 3)),
-            },
-          }))
-          graphStore.setCausalGraph(causalNodes, causalEdges)
-        }
-        if (parsed.relation_network) {
-          // 后端返回格式: { matrix: [{from, to, intimacy, power_gap, trust, ...}] }
-          // 转换为 graphStore 格式: nodes + edges
-          const rn = parsed.relation_network
-          const charSet = new Set<string>()
-          ;(rn.matrix || []).forEach((entry: any) => {
-            charSet.add(entry.from)
-            charSet.add(entry.to)
-          })
-          const relationNodes = Array.from(charSet).map(name => ({ id: name, name }))
-          const relationEdges = (rn.matrix || []).map((entry: any) => ({
-            source: entry.from,
-            target: entry.to,
-            value: entry.intimacy,
-          }))
-          graphStore.setRelationNetwork(relationNodes, relationEdges)
-        }
-      }
-    } catch (e) {
-      console.error('YAML 解析失败:', e)
+/** 从 YAML 文本解析并初始化编辑器所有数据 */
+function initFromYaml(rawYaml: string): boolean {
+  try {
+    const parsed = yaml.load(rawYaml) as any
+    if (!parsed || !parsed.scenes || !parsed.scenes.length) {
+      // YAML 存在但无有效场景数据
+      return false
     }
+
+    scriptStore.setScriptData(parsed)
+    scriptStore.loadYaml(rawYaml)
+    yamlSource.value = rawYaml
+
+    // 初始化因果图谱
+    if (parsed.causal_graph) {
+      const cg = parsed.causal_graph
+      const causalNodes = (cg.events || []).map((e: any) => ({
+        id: e.id,
+        name: e.description || e.id,
+        category: e.chapter ? 'chapter_' + e.chapter : undefined,
+      }))
+      const causalEdges = (cg.edges || []).map((e: any) => ({
+        source: e.from,
+        target: e.to,
+        value: e.strength,
+        label: e.type === 'causal' ? '因果' : e.type === 'temporal' ? '时序' : '情感',
+        lineStyle: {
+          color: e.type === 'causal' ? '#60a5fa' : e.type === 'temporal' ? '#94a3b8' : '#f87171',
+          width: Math.min(3, Math.max(1, e.strength * 3)),
+        },
+      }))
+      graphStore.setCausalGraph(causalNodes, causalEdges)
+    }
+
+    // 初始化关系网络
+    if (parsed.relation_network) {
+      const rn = parsed.relation_network
+      const charSet = new Set<string>()
+      ;(rn.matrix || []).forEach((entry: any) => {
+        charSet.add(entry.from)
+        charSet.add(entry.to)
+      })
+      const relationNodes = Array.from(charSet).map(name => ({ id: name, name }))
+      const relationEdges = (rn.matrix || []).map((entry: any) => ({
+        source: entry.from,
+        target: entry.to,
+        value: entry.intimacy,
+      }))
+      graphStore.setRelationNetwork(relationNodes, relationEdges)
+    }
+
+    return true
+  } catch (e) {
+    console.error('YAML 解析失败:', e)
+    loadError.value = e instanceof Error ? e.message : '未知解析错误'
+    return false
   }
+}
+
+// ==================== 数据加载 ====================
+
+async function loadData() {
+  loadStatus.value = 'loading'
+  loadError.value = ''
+
+  // 使用 requestAnimationFrame 让 loading 状态先渲染，避免闪烁
+  await new Promise(resolve => requestAnimationFrame(resolve))
+
+  const rawYaml = sessionStorage.getItem('script_yaml')
+
+  if (!rawYaml || !rawYaml.trim()) {
+    loadStatus.value = 'empty'
+    return
+  }
+
+  const success = initFromYaml(rawYaml)
+  loadStatus.value = success ? 'loaded' : (loadError.value ? 'error' : 'empty')
+}
+
+function retryLoad() {
+  loadData()
+}
+
+// 初始化
+onMounted(() => {
+  loadData()
 })
 
-// 保存
+// ==================== 保存 ====================
 async function handleSave() {
   isSaving.value = true
   try {
@@ -397,55 +464,17 @@ function handleImport(event: Event) {
   const reader = new FileReader()
   reader.onload = (e) => {
     const text = e.target?.result as string || ''
-    try {
-      const parsed = yaml.load(text) as any
-      if (parsed) {
-        scriptStore.setScriptData(parsed)
-        scriptStore.loadYaml(text)
-        yamlSource.value = text
-        sessionStorage.setItem('script_yaml', text)
+    if (!text.trim()) return
 
-        // 重新初始化图谱数据
-        if (parsed.causal_graph) {
-          const cg = parsed.causal_graph
-          const causalNodes = (cg.events || []).map((e: any) => ({
-            id: e.id,
-            name: e.description || e.id,
-            category: e.chapter ? 'chapter_' + e.chapter : undefined,
-          }))
-          const causalEdges = (cg.edges || []).map((e: any) => ({
-            source: e.from,
-            target: e.to,
-            value: e.strength,
-            label: e.type === 'causal' ? '因果' : e.type === 'temporal' ? '时序' : '情感',
-            lineStyle: {
-              color: e.type === 'causal' ? '#60a5fa' : e.type === 'temporal' ? '#94a3b8' : '#f87171',
-              width: Math.min(3, Math.max(1, e.strength * 3)),
-            },
-          }))
-          graphStore.setCausalGraph(causalNodes, causalEdges)
-        }
-        if (parsed.relation_network) {
-          const rn = parsed.relation_network
-          const charSet = new Set<string>()
-          ;(rn.matrix || []).forEach((entry: any) => {
-            charSet.add(entry.from)
-            charSet.add(entry.to)
-          })
-          const relationNodes = Array.from(charSet).map(name => ({ id: name, name }))
-          const relationEdges = (rn.matrix || []).map((entry: any) => ({
-            source: entry.from,
-            target: entry.to,
-            value: entry.intimacy,
-          }))
-          graphStore.setRelationNetwork(relationNodes, relationEdges)
-        }
-
-        emitScriptUpdate()
-      }
-    } catch (err) {
-      console.error('导入解析失败:', err)
-      alert('文件格式错误，无法解析为有效的 YAML 数据')
+    // 使用公共初始化函数
+    const success = initFromYaml(text)
+    if (success) {
+      sessionStorage.setItem('script_yaml', text)
+      loadStatus.value = 'loaded'
+      emitScriptUpdate()
+    } else {
+      alert(loadError.value || '文件格式错误，无法解析为有效的 YAML 剧本数据')
+      if (!loadError.value) loadStatus.value = 'error'
     }
   }
   reader.readAsText(file)

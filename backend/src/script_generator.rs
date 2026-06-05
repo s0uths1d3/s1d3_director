@@ -9,18 +9,24 @@ pub async fn generate_script(
     api_key: &str,
     base_url: &str,
 ) -> Result<String, String> {
-    // 如果有 API Key，尝试调用 LLM 生成；失败则自动降级为模拟模式
+    // 如果有 API Key，调用 LLM 生成
     if !api_key.is_empty() && api_key != "mock" {
+        tracing::info!(api_key_len = api_key.len(), base_url = %base_url, "使用 DeepSeek LLM 生成剧本");
+
         match generate_with_llm(text, config, api_key, base_url).await {
-            Ok(result) => return Ok(result),
+            Ok(result) => {
+                tracing::info!("LLM 剧本生成成功");
+                return Ok(result);
+            }
             Err(e) => {
-                tracing::warn!(error = %e, "LLM 生成失败，自动降级为模拟模式");
-                // 不返回错误，而是降级到模拟模式
+                tracing::error!(error = %e, "LLM 剧本生成失败，将错误返回给前端（不再静默降级为模拟模式）");
+                return Err(format!("AI 生成失败: {}。请检查 API Key 和网络连接，或暂时清空 API Key 使用模拟模式。", e));
             }
         }
     }
 
-    // 模拟模式：返回预设的示例剧本
+    // 模拟模式
+    tracing::warn!("API Key 未配置或为 mock 模式，使用预设示例数据");
     Ok(generate_mock_script(text, config))
 }
 
@@ -55,15 +61,73 @@ async fn generate_with_llm(
     };
 
     let prompt = format!(
-        "你是一名专业编剧。请将以下小说改编为{}。\n\
-        要求：\n\
-        1. 提取主要角色（含 traits 和 voice）\n\
-        2. 将故事拆分为场景（scenes），每个场景包含节拍（beats）\n\
-        3. 节拍类型包括：action（动作描述）、dialogue（对话）、monologue（独白）、parenthetical（括号说明）\n\
-        {}\n\
-        {}\n\
-        返回完整的 JSON 格式剧本数据（符合 ScriptYaml 结构）。\n\n\
-        小说文本（前8000字）：\n{}",
+        r#"你是一名专业编剧。请将以下小说改编为{}。
+
+## 输出要求
+
+你必须输出一个完整的 JSON 对象，严格遵循以下结构。不要输出任何其他文字、解释或 markdown 标记。
+
+### JSON 结构定义
+
+{{
+  "metadata": {{
+    "title": "剧本标题",
+    "source_novel": "原小说名称或描述",
+    "adaptation_date": "YYYY-MM-DD",
+    "style": "{}",
+    "emotional_curve": {{ "chapters": [1,2], "intensities": [0.3,0.7] }}
+  }},
+  "characters": [
+    {{
+      "id": "char_001",
+      "name": "角色名",
+      "traits": ["特征1", "特征2"],
+      "voice": "声音特点描述"
+    }}
+  ],
+  "causal_graph": {{
+    "events": [{{ "id":"evt_001","description":"事件描述","scene_ids":[1],"chapter":1 }}],
+    "edges": [{{ "from":"evt_001","to":"evt_002","type":"causal","strength":0.9 }}]
+  }},
+  "relation_network": {{
+    "matrix": [{{ "from":"角色A","to":"角色B","intimacy":0.6,"power_gap":-0.3,"trust":0.7 }}]
+  }},
+  "scenes": [
+    {{
+      "id": 1,
+      "location": "地点描述",
+      "time": "时间描述（可选）",
+      "emotion_intensity": 0.5,
+      "media_hints": {{ "camera": "镜头建议", "music": "配乐风格" }},
+      "beats": [
+        {{
+          "type": "action|dialogue|monologue|parenthetical",
+          "content": "节拍内容文本",
+          "alternatives": [
+            {{ "content": "备选内容文本", "tone": "语气词" }}
+          ],
+          "selected": 0,
+          "speaker": "说话人名（仅对话类型需要）",
+          "emotion": "情感状态（可选）"
+        }}
+      ]
+    }}
+  ]]
+}}
+
+## 具体规则
+
+1. 提取主要角色，每个角色必须有唯一的 id（格式 char_NNN）
+2. 将故事拆分为场景（scenes），每个场景有唯一数字 id
+3. 场景中包含节拍（beats），节拍类型：action（动作描述）、dialogue（对话）、monologue（独白）、parenthetical（括号说明）
+4. 节拍的 alternatives 中，每条备选的 content 字段是实际内容文本
+5. {}
+6. {}
+
+## 小说文本（前8000字）
+
+{}"#,
+        style_desc,
         style_desc,
         blind_mode_note,
         media_note,
@@ -72,18 +136,200 @@ async fn generate_with_llm(
 
     let response = call_deepseek(&prompt, api_key, base_url, None, true).await?;
 
+    tracing::info!(response_len = response.len(), "LLM 原始响应长度");
+
+    // 尝试提取 JSON（处理可能的 markdown 代码块包裹）
+    let json_str = extract_json_from_response(&response);
+
     // 尝试解析为 ScriptYaml 并序列化为 YAML
-    if let Ok(script) = serde_json::from_str::<ScriptYaml>(&response) {
+    if let Ok(script) = serde_json::from_str::<ScriptYaml>(&json_str) {
         // 补充元数据
         let mut script = script;
         script.metadata.adaptation_date = chrono::Utc::now().format("%Y-%m-%d").to_string();
         script.metadata.emotional_curve = Some(emotional_curve);
-        serde_yaml::to_string(&script)
-            .map_err(|e| format!("序列化剧本 YAML 失败: {}", e))
-    } else {
-        // LLM 返回的不是有效 JSON，返回原始响应作为 YAML 内容
-        Ok(response)
+        let yaml_output = serde_yaml::to_string(&script)
+            .map_err(|e| format!("序列化剧本 YAML 失败: {}", e))?;
+        tracing::info!(yaml_len = yaml_output.len(), scene_count = script.scenes.len(), "成功生成标准 YAML");
+        return Ok(yaml_output);
     }
+
+    // 尝试智能转换非标准格式 → ScriptYaml
+    match convert_to_script_yaml(&json_str, emotional_curve) {
+        Ok(yaml_output) => {
+            tracing::info!("通过智能转换成功生成 YAML");
+            return Ok(yaml_output);
+        }
+        Err(e) => {
+            tracing::error!(
+                error = %e,
+                raw_preview = &json_str[..json_str.len().min(500)],
+                "LLM 返回的 JSON 无法解析为标准格式，且智能转换也失败"
+            );
+            return Err(format!(
+                "AI 生成的数据格式异常（{}）。请重试或检查小说内容是否足够丰富。",
+                e
+            ));
+        }
+    }
+}
+
+/// 从 LLM 响应中提取 JSON 字符串（去除可能的 markdown 代码块包裹）
+fn extract_json_from_response(response: &str) -> String {
+    let trimmed = response.trim();
+
+    // 如果被 ```json ... ``` 包裹，提取内部内容
+    if trimmed.starts_with("```") {
+        if let Some(start) = trimmed.find('\n') {
+            if let Some(end) = trimmed[start + 1..].find("```") {
+                return trimmed[start + 1..start + 1 + end].trim().to_string();
+            }
+        }
+    }
+
+    // 如果整个响应就是 JSON（以 { 开头），直接返回
+    if trimmed.starts_with('{') {
+        return trimmed.to_string();
+    }
+
+    // 尝试在响应中找第一个 { 到最后一个 }
+    if let Some(start) = trimmed.find('{') {
+        if let Some(end) = trimmed.rfind('}') {
+            return trimmed[start..=end].to_string();
+        }
+    }
+
+    response.to_string()
+}
+
+/// 智能转换：将 LLM 非标准 JSON 输出转换为 ScriptYaml 格式
+fn convert_to_script_yaml(json_str: &str, emotional_curve: EmotionalCurve) -> Result<String, String> {
+    // 先尝试作为通用 Value 解析
+    let value: serde_json::Value = serde_json::from_str(json_str)
+        .map_err(|e| format!("JSON 解析失败: {}", e))?;
+
+    tracing::info!(keys = ?value.as_object().map(|o| o.keys().collect::<Vec<_>>()), "尝试智能转换 LLM 输出");
+
+    // 提取标题
+    let title = value.get("title")
+        .and_then(|v| v.as_str())
+        .unwrap_or("未命名剧本")
+        .to_string();
+
+    // 提取 characters
+    let characters = value.get("characters")
+        .and_then(|v| v.as_array())
+        .map(|arr| {
+            arr.iter().enumerate().map(|(i, c)| Character {
+                id: c.get("id").and_then(|v| v.as_str()).unwrap_or(&format!("char_{:03}", i + 1)).to_string(),
+                name: c.get("name").and_then(|v| v.as_str()).unwrap_or("未知角色").to_string(),
+                traits: c.get("traits").and_then(|v| v.as_array())
+                    .map(|t| t.iter().filter_map(|v| v.as_str().map(String::from)).collect())
+                    .unwrap_or_default(),
+                voice: c.get("voice").and_then(|v| v.as_str()).map(String::from),
+            }).collect()
+        })
+        .unwrap_or_default();
+
+    // 提取 scenes
+    let scenes_raw = value.get("scenes").and_then(|v| v.as_array());
+    let scenes = match scenes_raw {
+        Some(arr) => {
+            arr.iter().enumerate().map(|(idx, s)| {
+                // location 可能叫 location 也可能叫 name/setting
+                let location = s.get("location")
+                    .or_else(|| s.get("name"))
+                    .or_else(|| s.get("setting"))
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string();
+                // time 可能叫 time 或从 setting 推断
+                let time = s.get("time").and_then(|v| v.as_str()).map(String::from);
+
+                // emotion_intensity 默认值
+                let emotion_intensity = s.get("emotion_intensity")
+                    .and_then(|v| v.as_f64())
+                    .unwrap_or(0.5);
+
+                // beats
+                let beats = s.get("beats").and_then(|v| v.as_array())
+                    .map(|b_arr| {
+                        b_arr.iter().map(|b| {
+                            let beat_type = b.get("type")
+                                .or_else(|| b.get("beat_type"))
+                                .and_then(|v| v.as_str())
+                                .unwrap_or("action")
+                                .to_string();
+                            let content = b.get("content")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or("")
+                                .to_string();
+
+                            // alternatives: 统一提取 content 字段
+                            let alternatives = b.get("alternatives").and_then(|v| v.as_array())
+                                .map(|a_arr| {
+                                    a_arr.iter().map(|a| {
+                                        // 优先取 content，其次按 beat_type 取对应字段
+                                        let alt_content = a.get("content")
+                                            .or_else(|| a.get(beat_type.as_str()))
+                                            .and_then(|v| v.as_str())
+                                            .unwrap_or("")
+                                            .to_string();
+                                        let tone = a.get("tone").and_then(|v| v.as_str()).map(String::from);
+                                        BeatAlternative { content: alt_content, tone }
+                                    }).collect()
+                                })
+                                .unwrap_or_default();
+
+                            let speaker = b.get("speaker").and_then(|v| v.as_str()).map(String::from);
+                            let emotion = b.get("emotion").and_then(|v| v.as_str()).map(String::from);
+
+                            Beat {
+                                beat_type,
+                                content,
+                                alternatives,
+                                selected: 0,
+                                speaker,
+                                emotion,
+                            }
+                        }).collect()
+                    })
+                    .unwrap_or_default();
+
+                // media_hints
+                let media_hints = s.get("media_hints").and_then(|mh| {
+                    let camera = mh.get("camera")?.as_str()?;
+                    let music = mh.get("music")?.as_str()?;
+                    Some(MediaHints { camera: camera.to_string(), music: music.to_string() })
+                });
+
+                Scene {
+                    id: (idx + 1) as i32,
+                    location,
+                    time,
+                    emotion_intensity,
+                    beats,
+                    media_hints,
+                }
+            }).collect()
+        }
+        None => vec![],
+    };
+
+    let script = ScriptYaml {
+        metadata: ScriptMetadata {
+            title,
+            source_novel: "用户上传的小说".to_string(),
+            adaptation_date: chrono::Utc::now().format("%Y-%m-%d").to_string(),
+            style: "short_drama".to_string(),
+            emotional_curve: Some(emotional_curve),
+        },
+        characters,
+        causal_graph: None,
+        relation_network: None,
+        scenes,
+    };
+
+    serde_yaml::to_string(&script).map_err(|e| format!("YAML 序列化失败: {}", e))
 }
 
 /// 模拟模式：生成示例剧本 YAML
