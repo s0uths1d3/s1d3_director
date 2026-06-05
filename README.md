@@ -20,18 +20,18 @@
 ## 技术架构
 
 ```
-┌─────────────────────┐         ┌──────────────────────┐
-│   Frontend (Nuxt 3) │  ────►  │   Backend (Rust/Axum) │
-│   Vue 3 + TypeScript│         │   + PostgreSQL        │
-│   ECharts + Monaco  │         │   + DeepSeek API      │
-└─────────────────────┘         └──────────────────────┘
+┌─────────────────────────────┐         ┌──────────────────────┐
+│   Frontend (Nuxt 3.21)      │  ────►  │   Backend (Rust/Axum) │
+│   Vue 3.5 + TypeScript      │         │   + PostgreSQL        │
+│   ECharts + Monaco + Vite 7│         │   + DeepSeek API      │
+└─────────────────────────────┘         └──────────────────────┘
 ```
 
 ### 技术栈
 
 | 层级 | 技术 | 说明 |
 |------|------|------|
-| **前端框架** | Nuxt 3 (Vue 3 + TypeScript) | SSR 支持，Pinia 状态管理 |
+| **前端框架** | Nuxt 3.21 (Vue 3.5 + TypeScript) | SSR 支持，Pinia 状态管理，Vite 7 构建 |
 | **后端框架** | Axum 0.7 (Rust) | 高性能异步 Web 框架 |
 | **数据库** | PostgreSQL + sqlx | 异步数据库访问 |
 | **AI 引擎** | DeepSeek API (OpenAI 兼容) | 剧本生成与 AI 对话 |
@@ -57,7 +57,7 @@ s1d3_director/
 │   ├── Cargo.toml
 │   ├── .env.example         # 环境变量模板
 │   └── .env                 # ⚠️ 不提交到 Git
-├── frontend/                # Nuxt 3 前端
+├── frontend/                # Nuxt 3.21 前端
 │   ├── pages/
 │   │   ├── index.vue        # 首页（输入小说 → 生成剧本）
 │   │   └── editor.vue       # 编辑器（三栏布局）
@@ -168,3 +168,35 @@ npm run dev
 ## 开源协议
 
 MIT License
+
+## 更新记录
+
+### v0.2.0 (2026-06-05) - Nuxt 版本升级
+
+**依赖升级：**
+| 包名 | 旧版本 | 新版本 |
+|------|--------|--------|
+| nuxt | ^3.12.4 | **^3.21.7** |
+| vue | ^3.4.27 | **^3.5.13** |
+| vue-router | ^4.3.2 | **^4.5.0** |
+| pinia | ^2.1.7 | **^2.3.0** |
+| @pinia/nuxt | ^0.5.1 | **^0.9.0** |
+| vue-echarts | ^6.7.3 | **^7.0.3** |
+| echarts | ^5.5.0 | **^5.5.1** |
+| naive-ui | ^2.38.0 | **^2.40.0** |
+| tailwindcss | ^3.4.4 | **^3.4.17** |
+| @nuxtjs/tailwindcss | ^6.12.0 | **^6.13.0** |
+
+**配套升级：**
+- Nitro: 2.x → **2.13.4**
+- Vite: 5.x → **7.3.5**
+- compatibilityDate: 2024-06-08 → **2025-10-28**
+
+### v0.1.0 (2026-06-05) - 项目初始化
+
+- 完整的前后端架构搭建
+- 7 个 API 端点实现
+- 前端可视化组件（ECharts 因果图/关系网络/情感曲线）
+- AI 编剧助手功能
+- PostgreSQL 数据库集成
+- LLM Mock 模式降级策略
