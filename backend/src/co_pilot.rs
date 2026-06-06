@@ -115,6 +115,7 @@ pub async fn chat(
         base_url,
         Some(CO_PILOT_SYSTEM_PROMPT),
         false,
+        "deepseek-chat",
     )
     .await?;
 
@@ -142,7 +143,7 @@ pub async fn suggest(
         safe_truncate(script_yaml, 5000)
     );
 
-    let response = call_deepseek(&prompt, api_key, base_url, None, true).await?;
+    let response = call_deepseek(&prompt, api_key, base_url, None, true, "deepseek-chat").await?;
 
     match serde_json::from_str::<Vec<Suggestion>>(&response) {
         Ok(suggestions) => Ok(suggestions),
@@ -288,6 +289,7 @@ pub async fn regenerate(
         base_url,
         Some(REGENERATE_SYSTEM_PROMPT),
         true, // JSON 模式
+        "deepseek-chat",
     )
     .await?;
 

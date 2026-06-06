@@ -295,12 +295,17 @@
                 </svg>
                 生成剧本
               </span>
-              <span v-else class="flex items-center justify-center gap-2">
+              <span v-else class="flex flex-col items-center justify-center gap-2">
                 <svg class="animate-spin w-5 h-5" fill="none" viewBox="0 0 24 24">
                   <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
                   <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                 </svg>
-                正在分析并生成...
+                <span class="text-xs">{{ generateMessage || '正在处理...' }}</span>
+                <!-- 进度条 -->
+                <div v-if="generateProgress > 0" class="w-full bg-slate-700/50 rounded-full h-1.5 overflow-hidden">
+                  <div class="h-full bg-white/60 rounded-full transition-all duration-500 ease-out" :style="{ width: generateProgress + '%' }"></div>
+                </div>
+                <span v-if="generateProgress > 0" class="text-[10px] opacity-60">{{ generateProgress }}%</span>
               </span>
             </button>
           </div>
@@ -423,6 +428,11 @@ const novelText = ref('')
 const fileInput = ref<HTMLInputElement | null>(null)
 const isDragging = ref(false)
 const isGenerating = ref(false)
+
+// 生成进度状态（SSE）
+const generateProgress = ref(0)
+const generateStage = ref('')
+const generateMessage = ref('')
 
 const config = reactive({
   style: 'short_drama',
@@ -706,34 +716,44 @@ async function generateScript() {
   if (!novelText.value.trim()) return
 
   isGenerating.value = true
+  generateProgress.value = 0
+  generateStage.value = 'analysis'
+  generateMessage.value = '正在分析小说结构...'
 
   try {
-    const response = await fetch('/api/generate-script', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        text: novelText.value,
-        config: {
-          style: config.style,
-          blind_acting_mode: config.blindActingMode,
-          max_alternatives: 2,
-          include_media_hints: config.includeMediaHints,
-          include_causal_graph: config.includeCausalGraph,
-          include_relation_network: config.includeRelationNetwork,
-        },
-      }),
-    })
+    let yamlText: string
 
-    if (!response.ok) throw new Error(`生成失败: ${response.status}`)
-
-    const yamlText = await response.text()
+    // 尝试 SSE 流式模式
+    const useSSE = await tryStreamGenerate(novelText.value)
+    if (useSSE) {
+      yamlText = await streamGenerateScript(novelText.value)
+    } else {
+      // 降级为普通 POST 模式
+      generateMessage.value = '正在生成剧本（可能需要 30~120 秒）...'
+      const response = await fetch('/api/generate-script', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          text: novelText.value,
+          config: {
+            style: config.style,
+            blind_acting_mode: config.blindActingMode,
+            max_alternatives: 2,
+            include_media_hints: config.includeMediaHints,
+            include_causal_graph: config.includeCausalGraph,
+            include_relation_network: config.includeRelationNetwork,
+          },
+        }),
+      })
+      if (!response.ok) throw new Error(`生成失败: ${response.status}`)
+      yamlText = await response.text()
+    }
 
     // 乐观更新：在导航前先将项目添加到"我的项目"列表
-    // （后端会异步保存真实项目，返回首页时会自动同步）
     const now = new Date().toISOString()
     const styleMap: Record<string, string> = { short_drama: '短剧', film: '电影', stage: '舞台剧' }
     projectStore.addProjectToLocal({
-      id: 'pending-' + Date.now(), // 临时 ID，后端保存后会被真实数据覆盖
+      id: 'pending-' + Date.now(),
       title: `${styleMap[config.style] || '短剧'} - ${new Date().toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })}`,
       description: `基于小说文本生成的${styleMap[config.style] || ''}风格剧本`,
       style: config.style,
@@ -752,7 +772,75 @@ async function generateScript() {
     await dialog.alert('生成失败: ' + error.message, { variant: 'danger' })
   } finally {
     isGenerating.value = false
+    generateProgress.value = 0
+    generateStage.value = ''
+    generateMessage.value = ''
   }
+}
+
+/** 检测后端是否支持 SSE 流式接口 */
+async function tryStreamGenerate(_text: string): Promise<boolean> {
+  try {
+    const probeRes = await fetch('/api/generate-script/stream', {
+      method: 'GET',
+      headers: { Accept: 'text/event-stream' },
+    })
+    return probeRes.ok
+  } catch {
+    return false
+  }
+}
+
+/** 使用 SSE 流式生成剧本 */
+async function streamGenerateScript(text: string): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const encodedText = encodeURIComponent(text)
+    const eventSource = new EventSource(`/api/generate-script/stream?text=${encodedText}`)
+
+    eventSource.onmessage = (event) => {
+      try {
+        const data = JSON.parse(event.data)
+        if (data.stage) {
+          generateStage.value = data.stage
+          generateProgress.value = Math.round((data.progress || 0) * 100)
+        }
+        if (data.message) {
+          generateMessage.value = data.message
+        }
+        if (data.current_chapter && data.total_chapters) {
+          generateMessage.value = `正在按章节生成剧本（第 ${data.current_chapter}/${data.total_chapters} 章）...`
+        }
+        if (data.completed_chunks !== undefined && data.total_chunks !== undefined) {
+          generateMessage.value = `正在整合校验中... (${data.completed_chunks}/${data.total_chunks})`
+        }
+
+        // 最终结果
+        if (data.yaml) {
+          eventSource.close()
+          resolve(data.yaml)
+        }
+        if (data.error) {
+          eventSource.close()
+          reject(new Error(data.error))
+        }
+      } catch (e) {
+        // 非 JSON 消息，忽略
+      }
+    }
+
+    eventSource.onerror = () => {
+      eventSource.close()
+      reject(new Error('SSE 连接中断，请重试'))
+    }
+
+    // 超时保护：120 秒
+    setTimeout(() => {
+      if (eventSource.readyState !== EventSource.CLOSED) {
+        eventSource.close()
+        reject(new Error('生成超时（>120秒），请稍后重试或缩短文本长度'))
+      }
+    }, 120_000)
+  })
 }
 
 // ==================== 初始化 ====================

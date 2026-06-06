@@ -11,6 +11,7 @@ use crate::models::*;
 use crate::utils::safe_truncate;
 use crate::{
     emotion_analyzer, script_generator, causal_graph, relation_network, co_pilot,
+    pipeline_generator,
 };
 use co_pilot::{CoPilotChatRequest, CoPilotSuggestResponse, CoPilotSuggestRequest};
 
@@ -161,7 +162,7 @@ pub async fn analyze_text(
     }).into_response()
 }
 
-/// 生成完整剧本
+/// 生成完整剧本（优先使用 Pipeline，失败时降级到旧方法）
 pub async fn generate_script_handler(
     State(state): State<AppState>,
     headers: axum::http::HeaderMap,
@@ -172,8 +173,25 @@ pub async fn generate_script_handler(
 
     tracing::info!(api_key_len = api_key.len(), text_len = body.text.len(), "generate_script_handler called");
 
-    match script_generator::generate_script(&body.text, &body.config, &api_key, &base_url).await {
-        Ok(yaml_content) => {
+    // 优先使用 Pipeline 生成
+    match pipeline_generator::generate_via_pipeline(&body.text, &body.config, &api_key, &base_url).await {
+        Ok((script_yaml, progress_events)) => {
+            // 记录进度事件到日志
+            for event in &progress_events {
+                tracing::info!(
+                    stage = %event.stage,
+                    message = %event.message,
+                    progress = event.progress,
+                    "Pipeline 进度"
+                );
+            }
+
+            let yaml_content = serde_yaml::to_string(&script_yaml)
+                .unwrap_or_else(|e| {
+                    tracing::error!(error = %e, "序列化 YAML 失败");
+                    "序列化失败".to_string()
+                });
+
             // 异步保存剧本和项目到数据库（不阻塞响应）
             if let Some(ref db) = state.db {
                 let db_clone = db.clone();
@@ -222,10 +240,108 @@ pub async fn generate_script_handler(
                 })
         }
         Err(e) => {
-            tracing::error!(error = %e, "generate_script failed");
-            error_response(StatusCode::INTERNAL_SERVER_ERROR, &format!("生成失败: {}", e))
+            tracing::warn!(error = %e, "Pipeline 生成失败，降级到旧的 generate_script 方法");
+            // 降级到旧的 generate_script
+            match script_generator::generate_script(&body.text, &body.config, &api_key, &base_url).await {
+                Ok(yaml_content) => {
+                    if let Some(ref db) = state.db {
+                        let db_clone = db.clone();
+                        let yaml_clone = yaml_content.clone();
+                        let style_clone = body.config.style.clone();
+                        let text_preview: String = body.text.chars().take(500).collect();
+
+                        tokio::spawn(async move {
+                            let title = format!("改编剧本 - {}", chrono::Local::now().format("%Y-%m-%d %H:%M"));
+                            let script_result: Result<(sqlx::types::Uuid,), _> = sqlx::query_as(
+                                "INSERT INTO scripts (title, source_novel, style, yaml_content) VALUES ($1, $2, $3, $4) RETURNING id"
+                            )
+                            .bind(&title)
+                            .bind(&text_preview)
+                            .bind(&style_clone)
+                            .bind(&yaml_clone)
+                            .fetch_one(&db_clone)
+                            .await;
+
+                            if let Ok((script_id,)) = script_result {
+                                let project_title = format!("{} - {}", style_to_label(&style_clone), chrono::Local::now().format("%m/%d %H:%M"));
+                                sqlx::query(
+                                    "INSERT INTO projects (title, description, style, status, owner, novel_preview, script_id) VALUES ($1, $2, $3, 'completed', 'anonymous', $4, $5)"
+                                )
+                                .bind(&project_title)
+                                .bind(format!("基于小说文本生成的{}风格剧本", style_to_label(&style_clone)))
+                                .bind(&style_clone)
+                                .bind(&text_preview)
+                                .bind(script_id.to_string())
+                                .execute(&db_clone)
+                                .await.ok();
+                            }
+                        });
+                    }
+
+                    axum::http::Response::builder()
+                        .status(StatusCode::OK)
+                        .header(header::CONTENT_TYPE, "application/x-yaml; charset=utf-8")
+                        .body(yaml_content.into())
+                        .unwrap_or_else(|_| error_response(StatusCode::INTERNAL_SERVER_ERROR, "构建响应失败"))
+                }
+                Err(e2) => {
+                    tracing::error!(error = %e2, "generate_script fallback 也失败了");
+                    error_response(StatusCode::INTERNAL_SERVER_ERROR, &format!("生成失败 (pipeline+fallback均失败): {} | 原始错误: {}", e2, e))
+                }
+            }
         }
     }
+}
+
+/// SSE 流式推送剧本生成进度
+pub async fn generate_script_stream_handler(
+    State(state): State<AppState>,
+    headers: axum::http::HeaderMap,
+    Json(body): Json<GenerateScriptRequest>,
+) -> Response {
+    use axum::response::sse::{KeepAlive, Sse};
+
+    let api_key = get_api_key(&state, &headers);
+    let base_url = get_base_url(&state, &headers);
+
+    let text = body.text.clone();
+    let config = body.config.clone();
+
+    let stream = async_stream::stream! {
+        match pipeline_generator::generate_via_pipeline(&text, &config, &api_key, &base_url).await {
+            Ok((script_yaml, progress_events)) => {
+                // 先发送所有进度事件
+                for event in progress_events {
+                    let event_data = serde_json::to_string(&event).unwrap_or_default();
+                    yield Ok::<_, axum::BoxError>(
+                        axum::response::sse::Event::default()
+                            .data(event_data)
+                            .event("progress")
+                    );
+                }
+
+                // 最后发送完成事件和剧本数据
+                let yaml_content = serde_yaml::to_string(&script_yaml).unwrap_or_default();
+                yield Ok::<_, axum::BoxError>(
+                    axum::response::sse::Event::default()
+                        .data(yaml_content)
+                        .event("complete")
+                );
+            }
+            Err(e) => {
+                let error_data = serde_json::json!({"error": e}).to_string();
+                yield Ok::<_, axum::BoxError>(
+                    axum::response::sse::Event::default()
+                        .data(error_data)
+                        .event("error")
+                );
+            }
+        }
+    };
+
+    Sse::new(stream)
+        .keep_alive(KeepAlive::new())
+        .into_response()
 }
 
 /// 风格代码转中文标签
@@ -377,9 +493,13 @@ async fn extract_characters_mock_or_llm(
             safe_truncate(text, 3000)
         );
 
-        let response = crate::llm_client::call_deepseek(&prompt, api_key, base_url, None, true).await?;
-        serde_json::from_str::<Vec<CharacterDraft>>(&response)
-            .map_err(|e| format!("解析角色数据失败: {}", e))
+        let response = crate::llm_client::call_deepseek(&prompt, api_key, base_url, None, true, "deepseek-chat").await?;
+        // 先解析为通用 Value，再做类型容错转换（LLM 可能返回整数而非字符串）
+        let raw: serde_json::Value = serde_json::from_str(&response)
+            .map_err(|e| format!("解析角色数据失败: {}", e))?;
+        let characters = coerce_to_character_drafts(raw)
+            .map_err(|e| format!("解析角色数据失败: {}", e))?;
+        Ok(characters)
     } else {
         // 模拟模式
         Ok(vec![
@@ -402,6 +522,44 @@ async fn extract_characters_mock_or_llm(
                 voice: Some("语速快，音调高".to_string()),
             },
         ])
+    }
+}
+
+/// 将 LLM 返回的 JSON Value 容错转换为 CharacterDraft 列表
+/// LLM 可能返回整数/浮点数而非字符串，此函数自动做类型转换
+fn coerce_to_character_drafts(raw: serde_json::Value) -> Result<Vec<CharacterDraft>, String> {
+    let arr = raw.as_array().ok_or("角色数据不是数组")?;
+    let mut result = Vec::new();
+    for (idx, item) in arr.iter().enumerate() {
+        let obj = item.as_object().ok_or(&format!("第{}项不是对象", idx + 1))?;
+        let id = coerce_string(obj.get("id"), &format!("char_{:03}", idx + 1));
+        let name = coerce_string(obj.get("name"), &format!("角色{}", idx + 1));
+        let voice = obj.get("voice").and_then(|v| v.as_str()).map(|s| s.to_string());
+        let traits = match obj.get("traits") {
+            Some(t) => t.as_array()
+                .map(|arr| arr.iter().filter_map(|v| coerce_string_opt(v)).collect())
+                .unwrap_or_default(),
+            None => vec![],
+        };
+        result.push(CharacterDraft { id, name, traits, voice });
+    }
+    Ok(result)
+}
+
+fn coerce_string(val: Option<&serde_json::Value>, default: &str) -> String {
+    val.and_then(|v| match v {
+        serde_json::Value::String(s) => Some(s.clone()),
+        serde_json::Value::Number(n) => Some(n.to_string()),
+        serde_json::Value::Bool(b) => Some(b.to_string()),
+        _ => None,
+    }).unwrap_or_else(|| default.to_string())
+}
+
+fn coerce_string_opt(val: &serde_json::Value) -> Option<String> {
+    match val {
+        serde_json::Value::String(s) => Some(s.clone()),
+        serde_json::Value::Number(n) => Some(n.to_string()),
+        _ => val.as_str().map(|s| s.to_string()),
     }
 }
 

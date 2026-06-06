@@ -107,34 +107,50 @@ async fn generate_with_llm(
   "scenes": [
     {{
       "id": 1,
-      "location": "地点描述",
-      "time": "时间描述（可选）",
-      "emotion_intensity": 0.5,
-      "media_hints": {{ "camera": "镜头建议", "music": "配乐风格" }},
+      "location": "大学图书馆 · 靠窗角落",
+      "time": "午后 · 阳光斜射",
+      "emotion_intensity": 0.3,
+      "media_hints": {{ "camera": "全景→缓慢推进至中景", "music": "轻钢琴曲渐入" }},
       "beats": [
         {{
-          "type": "action|dialogue|monologue|parenthetical",
-          "content": "节拍内容文本",
+          "type": "action",
+          "content": "阳光透过落地窗洒在木质书桌上。林曦正埋头在一堆参考书中，时不时推一下滑落的眼镜。",
           "alternatives": [
-            {{ "content": "备选内容文本", "tone": "语气词" }}
+            {{ "content": "一道阴影落在书页上。林曦抬起头，撞进一双平静如水的眼睛里。", "tone": "文艺" }}
           ],
           "selected": 0,
-          "speaker": "说话人名（仅对话类型需要）",
-          "emotion": "情感状态（可选）"
+          "speaker": null,
+          "emotion": null
+        }},
+        {{
+          "type": "dialogue",
+          "content": "这里有人吗？",
+          "alternatives": [
+            {{ "content": "请问，这个位置……", "tone": "礼貌" }}
+          ],
+          "selected": 0,
+          "speaker": "char_002",
+          "emotion": "平淡中带着一丝期待"
         }}
       ]
     }}
-  ]]
+  ]
 }}
 
-## 具体规则
+## 质量规则（必须遵守）
 
 1. 提取主要角色，每个角色必须有唯一的 id（格式 char_NNN）
 2. 将故事拆分为场景（scenes），每个场景有唯一数字 id
 3. 场景中包含节拍（beats），节拍类型：action（动作描述）、dialogue（对话）、monologue（独白）、parenthetical（括号说明）
 4. 节拍的 alternatives 中，每条备选的 content 字段是实际内容文本
-5. {}
-6. {}
+5. **禁止使用任何占位符或泛化表述**：
+   - ❌ "对话内容"、"节拍内容文本"、"地点描述"、"时间描述（可选）"
+   - ✅ "你什么时候回来的？怎么不说一声。"、"咖啡馆·靠窗座位"、"傍晚6:20"
+6. **地点必须具体可感**：写出实际空间特征和环境氛围
+7. **对话必须是角色会说的话**：符合人物性格、推动情节发展、包含潜台词
+8. **动作描写要有画面感**：包含感官细节，能直接指导拍摄
+
+{}
 
 ## 小说文本（前8000字）
 
@@ -142,11 +158,10 @@ async fn generate_with_llm(
         style_desc,
         style_desc,
         blind_mode_note,
-        media_note,
         safe_truncate(text, 8000)
     );
 
-    let response = call_deepseek(&prompt, api_key, base_url, None, true).await?;
+    let response = call_deepseek(&prompt, api_key, base_url, None, true, "deepseek-chat").await?;
 
     tracing::info!(response_len = response.len(), "LLM 原始响应长度");
 
@@ -238,6 +253,10 @@ fn convert_to_script_yaml(json_str: &str, emotional_curve: EmotionalCurve) -> Re
                     .map(|t| t.iter().filter_map(|v| v.as_str().map(String::from)).collect())
                     .unwrap_or_default(),
                 voice: c.get("voice").and_then(|v| v.as_str()).map(String::from),
+                arc_summary: c.get("arc_summary").and_then(|v| v.as_str()).map(String::from),
+                motivation: c.get("motivation").and_then(|v| v.as_str()).map(String::from),
+                relationships: vec![],
+                first_scene_id: None,
             }).collect()
         })
         .unwrap_or_default();
@@ -302,6 +321,9 @@ fn convert_to_script_yaml(json_str: &str, emotional_curve: EmotionalCurve) -> Re
                                 selected: 0,
                                 speaker,
                                 emotion,
+                                participants: vec![],
+                                stage_direction: None,
+                                plot_line_tags: vec![],
                             }
                         }).collect()
                     })
@@ -321,6 +343,9 @@ fn convert_to_script_yaml(json_str: &str, emotional_curve: EmotionalCurve) -> Re
                     emotion_intensity,
                     beats,
                     media_hints,
+                    chapter_id: None,
+                    characters_present: vec![],
+                    plot_lines: vec![],
                 }
             }).collect()
         }
@@ -339,6 +364,7 @@ fn convert_to_script_yaml(json_str: &str, emotional_curve: EmotionalCurve) -> Re
         causal_graph: None,
         relation_network: None,
         scenes,
+        chapters: vec![],
     };
 
     serde_yaml::to_string(&script).map_err(|e| format!("YAML 序列化失败: {}", e))
@@ -394,18 +420,30 @@ fn generate_mock_script(_text: &str, config: &GenConfig) -> String {
                 name: "林曦".to_string(),
                 traits: vec!["敏感".to_string(), "执着".to_string(), "善良".to_string()],
                 voice: Some("轻柔，慢速".to_string()),
+                arc_summary: None,
+                motivation: None,
+                relationships: vec![],
+                first_scene_id: None,
             },
             Character {
                 id: "char_002".to_string(),
                 name: "顾言".to_string(),
                 traits: vec!["冷静".to_string(), "理性".to_string(), "内敛".to_string()],
                 voice: Some("简洁，低沉".to_string()),
+                arc_summary: None,
+                motivation: None,
+                relationships: vec![],
+                first_scene_id: None,
             },
             Character {
                 id: "char_003".to_string(),
                 name: "苏晴".to_string(),
                 traits: vec!["活泼".to_string(), "直率".to_string(), "热心".to_string()],
                 voice: Some("语速快，音调高".to_string()),
+                arc_summary: None,
+                motivation: None,
+                relationships: vec![],
+                first_scene_id: None,
             },
         ],
         causal_graph: if config.include_causal_graph {
@@ -502,6 +540,9 @@ fn generate_mock_script(_text: &str, config: &GenConfig) -> String {
                         selected: 0,
                         speaker: None,
                         emotion: None,
+                        participants: vec![],
+                        stage_direction: None,
+                        plot_line_tags: vec![],
                     },
                     Beat {
                         beat_type: "action".to_string(),
@@ -517,6 +558,9 @@ fn generate_mock_script(_text: &str, config: &GenConfig) -> String {
                         selected: 0,
                         speaker: None,
                         emotion: None,
+                        participants: vec![],
+                        stage_direction: None,
+                        plot_line_tags: vec![],
                     },
                     Beat {
                         beat_type: "dialogue".to_string(),
@@ -528,6 +572,9 @@ fn generate_mock_script(_text: &str, config: &GenConfig) -> String {
                             BeatAlternative { content: "介意我坐这儿吗？".to_string(), tone: Some("随意".to_string()), name: None, emotion: None },
                         ],
                         selected: 0,
+                        participants: vec![],
+                        stage_direction: None,
+                        plot_line_tags: vec![],
                     },
                     Beat {
                         beat_type: "dialogue".to_string(),
@@ -538,6 +585,9 @@ fn generate_mock_script(_text: &str, config: &GenConfig) -> String {
                             BeatAlternative { content: "没、没有，请坐……".to_string(), tone: Some("慌乱".to_string()), name: None, emotion: None },
                         ],
                         selected: 0,
+                        participants: vec![],
+                        stage_direction: None,
+                        plot_line_tags: vec![],
                     },
                     Beat {
                         beat_type: "action".to_string(),
@@ -546,6 +596,9 @@ fn generate_mock_script(_text: &str, config: &GenConfig) -> String {
                         selected: 0,
                         speaker: None,
                         emotion: None,
+                        participants: vec![],
+                        stage_direction: None,
+                        plot_line_tags: vec![],
                     },
                     Beat {
                         beat_type: "dialogue".to_string(),
@@ -554,6 +607,9 @@ fn generate_mock_script(_text: &str, config: &GenConfig) -> String {
                         emotion: Some("平静".to_string()),
                         alternatives: vec![],
                         selected: 0,
+                        participants: vec![],
+                        stage_direction: None,
+                        plot_line_tags: vec![],
                     },
                     Beat {
                         beat_type: "monologue".to_string(),
@@ -562,9 +618,15 @@ fn generate_mock_script(_text: &str, config: &GenConfig) -> String {
                         selected: 0,
                         speaker: None,
                         emotion: None,
+                        participants: vec![],
+                        stage_direction: None,
+                        plot_line_tags: vec![],
                     },
                 ],
                 media_hints: media_hints.clone(),
+                chapter_id: None,
+                characters_present: vec![],
+                plot_lines: vec![],
             },
             Scene {
                 id: 2,
@@ -586,6 +648,9 @@ fn generate_mock_script(_text: &str, config: &GenConfig) -> String {
                         selected: 0,
                         speaker: None,
                         emotion: None,
+                        participants: vec![],
+                        stage_direction: None,
+                        plot_line_tags: vec![],
                     },
                     Beat {
                         beat_type: "monologue".to_string(),
@@ -594,6 +659,9 @@ fn generate_mock_script(_text: &str, config: &GenConfig) -> String {
                         selected: 0,
                         speaker: None,
                         emotion: None,
+                        participants: vec![],
+                        stage_direction: None,
+                        plot_line_tags: vec![],
                     },
                     Beat {
                         beat_type: "dialogue".to_string(),
@@ -604,6 +672,9 @@ fn generate_mock_script(_text: &str, config: &GenConfig) -> String {
                             BeatAlternative { content: "这个 G 是……".to_string(), tone: Some("自言自语".to_string()), name: None, emotion: None },
                         ],
                         selected: 0,
+                        participants: vec![],
+                        stage_direction: None,
+                        plot_line_tags: vec![],
                     },
                     Beat {
                         beat_type: "action".to_string(),
@@ -612,6 +683,9 @@ fn generate_mock_script(_text: &str, config: &GenConfig) -> String {
                         selected: 0,
                         speaker: None,
                         emotion: None,
+                        participants: vec![],
+                        stage_direction: None,
+                        plot_line_tags: vec![],
                     },
                     Beat {
                         beat_type: "parenthetical".to_string(),
@@ -620,14 +694,21 @@ fn generate_mock_script(_text: &str, config: &GenConfig) -> String {
                         selected: 0,
                         speaker: None,
                         emotion: None,
+                        participants: vec![],
+                        stage_direction: None,
+                        plot_line_tags: vec![],
                     },
                 ],
                 media_hints: Some(MediaHints {
                     camera: "特写（笔记本字迹）→ 侧脸光影".to_string(),
                     music: "悬疑弦乐，低沉".to_string(),
                 }),
+                chapter_id: None,
+                characters_present: vec![],
+                plot_lines: vec![],
             },
         ],
+        chapters: vec![],
     };
 
     serde_yaml::to_string(&script).unwrap_or_else(|_| "模拟剧本生成失败".to_string())

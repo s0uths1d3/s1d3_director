@@ -41,7 +41,7 @@ pub async fn build_causal_graph(
             safe_truncate(script_yaml, 5000)
         );
 
-        let response = call_deepseek(&prompt, api_key, base_url, None, true).await?;
+        let response = call_deepseek(&prompt, api_key, base_url, None, true, "deepseek-chat").await?;
         if let Ok(cg) = serde_json::from_str::<CausalGraphResponse>(&response) {
             return Ok(causal_response_to_data(&cg));
         }

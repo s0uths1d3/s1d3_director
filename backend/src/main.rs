@@ -7,6 +7,7 @@ mod script_generator;
 mod causal_graph;
 mod relation_network;
 mod co_pilot;
+mod pipeline_generator;
 mod utils;
 
 use axum::{Router, routing::{get, post, put, delete}};
@@ -80,6 +81,8 @@ async fn main() {
                 .route("/api/analyze", post(handlers::analyze_text))
                 // 剧本生成
                 .route("/api/generate-script", post(handlers::generate_script_handler))
+                // 剧本生成（SSE 流式）
+                .route("/api/generate-script/stream", post(handlers::generate_script_stream_handler))
                 // 因果图谱
                 .route("/api/causal/impact", post(handlers::causal_impact))
                 // 关系网络更新
@@ -128,6 +131,7 @@ async fn main() {
                 .route("/api/health", get(handlers::health_check))
                 .route("/api/analyze", post(handlers::analyze_text))
                 .route("/api/generate-script", post(handlers::generate_script_handler))
+                .route("/api/generate-script/stream", post(handlers::generate_script_stream_handler))
                 .route("/api/causal/impact", post(handlers::causal_impact))
                 .route("/api/relation/update", post(handlers::update_relation))
                 .route("/api/co-pilot/chat", post(handlers::copilot_chat_handler))

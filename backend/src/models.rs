@@ -201,6 +201,8 @@ pub struct ScriptYaml {
     pub relation_network: Option<RelationNetworkResponse>,
     #[serde(default)]
     pub scenes: Vec<Scene>,
+    #[serde(default)]
+    pub chapters: Vec<Chapter>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -221,6 +223,46 @@ pub struct Character {
     pub traits: Vec<String>,
     #[serde(default)]
     pub voice: Option<String>,
+    /// 角色弧光描述（如"从自卑到自信的成长"）
+    #[serde(default)]
+    pub arc_summary: Option<String>,
+    /// 角色核心动机/目标
+    #[serde(default)]
+    pub motivation: Option<String>,
+    /// 角色间关系列表
+    #[serde(default)]
+    pub relationships: Vec<CharacterRelation>,
+    /// 首次出场的场景 ID
+    #[serde(default)]
+    pub first_scene_id: Option<i32>,
+}
+
+/// 角色关系
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct CharacterRelation {
+    pub target_character_id: String,
+    /// 关系类型：family/romance/rivalry/mentor/alliance/enemy/other
+    #[serde(rename = "type")]
+    pub relation_type: String,
+    #[serde(default)]
+    pub description: Option<String>,
+}
+
+/// 章节/幕层级
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct Chapter {
+    pub id: String,
+    pub title: String,
+    /// 情节线标签，如 "main", "romance", "mystery"
+    #[serde(default)]
+    pub plot_line: Option<String>,
+    #[serde(default)]
+    pub summary: String,
+    /// 该章包含的场景 ID 列表
+    #[serde(default)]
+    pub scene_ids: Vec<i32>,
+    /// 章节序号
+    pub order: i32,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -235,6 +277,26 @@ pub struct Scene {
     pub beats: Vec<Beat>,
     #[serde(default)]
     pub media_hints: Option<MediaHints>,
+    /// 所属章节 ID
+    #[serde(default)]
+    pub chapter_id: Option<String>,
+    /// 本场出场角色 ID 列表
+    #[serde(default)]
+    pub characters_present: Vec<String>,
+    /// 情节线标签
+    #[serde(default)]
+    pub plot_lines: Vec<String>,
+}
+
+/// 群戏参与者
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct BeatParticipant {
+    pub character_id: String,
+    /// 角色：speaker/listener/observer
+    pub role: String,
+    /// 该角色的对话内容（仅 speaker 有值）
+    #[serde(default)]
+    pub dialogue: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -250,6 +312,15 @@ pub struct Beat {
     pub speaker: Option<String>,
     #[serde(default)]
     pub emotion: Option<String>,
+    /// 群戏参与者列表（当多人参与时使用）
+    #[serde(default)]
+    pub participants: Vec<BeatParticipant>,
+    /// 舞台指示/动作描写（与对话分离）
+    #[serde(default)]
+    pub stage_direction: Option<String>,
+    /// 关联的情节线标签
+    #[serde(default)]
+    pub plot_line_tags: Vec<String>,
 }
 
 fn default_selected() -> usize { 0 }
@@ -323,4 +394,78 @@ pub struct ProjectListResponse {
     pub total: i64,
     pub page: i64,
     pub page_size: i64,
+}
+
+// ==================== 流水线阶段数据结构 =====
+
+/// Stage 1 输出：全局分析大纲
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct AnalysisOutline {
+    /// 提取的全部角色
+    pub characters: Vec<Character>,
+    /// 识别的情节线
+    #[serde(default)]
+    pub plot_lines: Vec<PlotLineDef>,
+    /// 叙事单元（章/幕）划分
+    #[serde(default)]
+    pub chapters: Vec<ChapterOutline>,
+    /// 全文摘要
+    #[serde(default)]
+    pub full_summary: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct PlotLineDef {
+    pub id: String,
+    pub name: String,
+    #[serde(default)]
+    pub description: String,
+    /// 主线/支线
+    #[serde(default = "default_plot_type")]
+    pub line_type: String,
+}
+
+fn default_plot_type() -> String { "supporting".to_string() }
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct ChapterOutline {
+    pub id: String,
+    pub title: String,
+    pub order: i32,
+    /// 对应原文的起始位置（字符偏移）
+    pub start_offset: usize,
+    /// 对应原文的结束位置（字符偏移）
+    pub end_offset: usize,
+    #[serde(default)]
+    pub summary: String,
+    /// 关联的情节线
+    #[serde(default)]
+    pub plot_lines: Vec<String>,
+    /// 本章关键角色
+    #[serde(default)]
+    pub key_characters: Vec<String>,
+}
+
+/// Stage 2 输出：分块生成的场景片段
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct SceneChunk {
+    pub chapter_id: String,
+    pub scenes: Vec<Scene>,
+}
+
+/// Pipeline 进度事件（用于 SSE 推送）
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct PipelineProgressEvent {
+    pub stage: String,           // "analysis" | "generation" | "integration"
+    pub message: String,
+    #[serde(default)]
+    pub progress: f64,           // 0.0 ~ 1.0
+    #[serde(default)]
+    pub current_chapter: Option<String>,
+    #[serde(default)]
+    pub total_chapters: Option<i32>,
+    #[serde(default)]
+    pub completed_chunks: Option<i32>,
+    #[serde(default)]
+    pub total_chunks: Option<i32>,
 }

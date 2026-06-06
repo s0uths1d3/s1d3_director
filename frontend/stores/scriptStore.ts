@@ -13,6 +13,13 @@ export interface BeatAlternative {
   emotion?: string
 }
 
+// 群戏参与者（新增）
+export interface BeatParticipant {
+  character_id: string
+  role: string        // "speaker" | "listener" | "observer"
+  dialogue?: string
+}
+
 export interface Beat {
   type: string
   content: string
@@ -20,11 +27,32 @@ export interface Beat {
   selected: number
   speaker?: string
   emotion?: string
+  // 新增字段
+  participants?: BeatParticipant[]
+  stage_direction?: string
+  plot_line_tags?: string[]
 }
 
 export interface MediaHints {
   camera: string
   music: string
+}
+
+// 章节接口（新增）
+export interface Chapter {
+  id: string
+  title: string
+  plot_line?: string
+  summary: string
+  scene_ids: number[]
+  order: number
+}
+
+// 角色关系（新增）
+export interface CharacterRelation {
+  target_character_id: string
+  relation_type: string
+  description?: string
 }
 
 export interface Scene {
@@ -34,6 +62,10 @@ export interface Scene {
   emotion_intensity: number
   beats: Beat[]
   media_hints?: MediaHints
+  // 新增字段
+  chapter_id?: string
+  characters_present?: string[]
+  plot_lines?: string[]
 }
 
 export interface Character {
@@ -41,6 +73,11 @@ export interface Character {
   name: string
   traits: string[]
   voice?: string
+  // 新增字段
+  arc_summary?: string
+  motivation?: string
+  relationships?: CharacterRelation[]
+  first_scene_id?: number | null
 }
 
 export interface EmotionalCurve {
@@ -62,6 +99,8 @@ export interface ScriptData {
   causal_graph?: any
   relation_network?: any
   scenes: Scene[]
+  // 新增字段
+  chapters?: Chapter[]
 }
 
 /** 单次修改记录 */
@@ -128,6 +167,30 @@ export const useScriptStore = defineStore('script', () => {
     }
     return null
   })
+
+  // ==================== 新增：章节与增强角色 getters ====================
+
+  /** 章节列表 */
+  const chapters = computed(() => scriptData.value?.chapters || [])
+
+  /** 按章节 ID 过滤场景 */
+  function scenesByChapter(chapterId: string): Scene[] {
+    return scenes.value.filter(s => s.chapter_id === chapterId)
+  }
+
+  /** 按 ID 查找角色 */
+  function characterById(id: string): Character | undefined {
+    return characters.value.find(c => c.id === id)
+  }
+
+  /** 返回含关系信息的角色列表（enhancedCharacters） */
+  const enhancedCharacters = computed(() => characters.value)
+
+  /** 获取角色名称（按 ID） */
+  function getCharacterName(characterId: string): string {
+    const ch = characterById(characterId)
+    return ch?.name || characterId
+  }
 
   // 某个目标是否正在 AI 重生成中
   function isRegenerating(key: string): boolean {
@@ -543,6 +606,12 @@ export const useScriptStore = defineStore('script', () => {
     currentBeat,
     flatBeats,
     isRegenerating,
+    // 新增：章节与角色增强
+    chapters,
+    scenesByChapter,
+    characterById,
+    enhancedCharacters,
+    getCharacterName,
     loadYaml,
     setScriptData,
     // 场景操作

@@ -1,0 +1,833 @@
+﻿metadata:
+  title: 改编剧本
+  source_novel: 用户上传的小说
+  adaptation_date: 2026-06-06
+  style: film
+  emotional_curve:
+    chapters:
+    - 1
+    - 2
+    - 3
+    intensities:
+    - 0.3
+    - 0.55
+    - 0.8
+characters:
+- id: char_001
+  name: 林曦
+  traits:
+  - 勤奋
+  - 敏感
+  - 善良
+  voice: 温柔而略带犹豫，内心独白细腻
+  arc_summary: 从单纯的大学生成长为更自信的职场新人，学会面对复杂关系
+  motivation: 追求学业和事业成功，同时渴望真挚的感情
+  relationships: []
+  first_scene_id: null
+- id: char_002
+  name: 顾言
+  traits:
+  - 成熟
+  - 稳重
+  - 内敛
+  voice: 简洁而富有磁性，言语中透露出关心
+  arc_summary: 从隐藏身份到坦诚相待，学会平衡职场与私人情感
+  motivation: 维持专业形象，同时不愿伤害林曦
+  relationships: []
+  first_scene_id: null
+causal_graph:
+  events:
+  - id: e1
+    description: 大雨困住林曦，手机无信号
+    scene_ids:
+    - 1
+    chapter: 1
+  - id: e2
+    description: 林曦问顾言什么时候回来
+    scene_ids:
+    - 1
+    chapter: 1
+  - id: e3
+    description: 林曦在咖啡馆看到旧照片
+    scene_ids:
+    - 2
+    chapter: 1
+  - id: e4
+    description: 林曦欲言又止
+    scene_ids:
+    - 2
+    chapter: 1
+  - id: e5
+    description: 顾言突然出现在林曦身后
+    scene_ids:
+    - 3
+    chapter: 1
+  - id: e6
+    description: 顾言说“你不用解释，我都明白”
+    scene_ids:
+    - 3
+    chapter: 1
+  - id: e7
+    description: 风将文件吹散，林曦捡起时停住
+    scene_ids:
+    - 4
+    chapter: 1
+  - id: e8
+    description: 林曦决心自己做决定
+    scene_ids:
+    - 4
+    chapter: 1
+  edges:
+  - from: e1
+    to: e2
+    type: temporal
+    strength: 0.9
+    description: 大雨困住后，林曦看到顾言，自然问出问题
+  - from: e2
+    to: e3
+    type: temporal
+    strength: 0.7
+    description: 对话后场景切换至咖啡馆，林曦看到旧照片
+  - from: e3
+    to: e4
+    type: emotional
+    strength: 0.8
+    description: 旧照片引发林曦压抑情绪，导致欲言又止
+  - from: e4
+    to: e5
+    type: temporal
+    strength: 0.6
+    description: 林曦沉默后，顾言突然出现
+  - from: e5
+    to: e6
+    type: causal
+    strength: 1.0
+    description: 顾言出现后直接说出安慰的话
+  - from: e6
+    to: e7
+    type: temporal
+    strength: 0.5
+    description: 对话后场景切换至公寓，风吹散文件
+  - from: e7
+    to: e8
+    type: emotional
+    strength: 0.9
+    description: 捡文件时的停顿触发林曦的悲伤和决心
+relation_network:
+  matrix:
+  - from: 顾言
+    to: 林曦
+    intimacy: 0.7
+    power_gap: 0.3
+    trust: 0.6
+    relation_type: 暧昧
+    description: 顾言关心林曦，但保持一定距离。
+    history:
+    - scene_id: 1
+      delta_intimacy: 0.1
+      delta_power: 0.0
+      delta_trust: 0.1
+    - scene_id: 2
+      delta_intimacy: 0.05
+      delta_power: 0.0
+      delta_trust: 0.05
+    - scene_id: 3
+      delta_intimacy: 0.1
+      delta_power: 0.1
+      delta_trust: 0.1
+    - scene_id: 4
+      delta_intimacy: 0.05
+      delta_power: 0.1
+      delta_trust: 0.05
+  - from: 林曦
+    to: 顾言
+    intimacy: 0.6
+    power_gap: -0.3
+    trust: 0.5
+    relation_type: 暧昧
+    description: 林曦对顾言有微妙的情感，但尚未完全敞开心扉。
+    history:
+    - scene_id: 1
+      delta_intimacy: 0.1
+      delta_power: 0.0
+      delta_trust: 0.0
+    - scene_id: 2
+      delta_intimacy: 0.05
+      delta_power: 0.0
+      delta_trust: 0.0
+    - scene_id: 3
+      delta_intimacy: 0.1
+      delta_power: -0.1
+      delta_trust: 0.1
+    - scene_id: 4
+      delta_intimacy: 0.05
+      delta_power: -0.1
+      delta_trust: 0.1
+scenes:
+- id: 1
+  location: 城市街道 · 清晨
+  time: 清晨 6:30
+  emotion_intensity: 0.3
+  beats:
+  - type: action
+    content: 一场突如其来的大雨把char_001困在了屋檐下。char_001看了看手机——没有信号。
+    alternatives: []
+    selected: 0
+    speaker: null
+    emotion: null
+    participants: []
+    stage_direction: char_001缓缓抬起头，眼神中闪过一丝不易察觉的情绪波动。
+    plot_line_tags:
+    - plot_main
+  - type: dialogue
+    content: char_001：你什么时候回来的？怎么不说一声。
+    alternatives: []
+    selected: 0
+    speaker: char_001
+    emotion: 平静但暗藏波澜
+    participants:
+    - character_id: char_001
+      role: speaker
+      dialogue: 你什么时候回来的？怎么不说一声。
+    - character_id: char_002
+      role: listener
+      dialogue: null
+    stage_direction: null
+    plot_line_tags:
+    - plot_main
+  media_hints:
+    camera: 全景 → 缓慢推进至中景
+    music: 钢琴独奏，缓慢渐入
+  chapter_id: ch_001
+  characters_present:
+  - char_001
+  - char_002
+  plot_lines:
+  - plot_main
+- id: 2
+  location: 咖啡馆 · 靠窗座位
+  time: 上午 9:00
+  emotion_intensity: 0.44999999999999996
+  beats:
+  - type: action
+    content: 桌上摊开的旧照片吸引了char_001的注意。照片边缘已经泛黄，上面的人影模糊不清。
+    alternatives: []
+    selected: 0
+    speaker: null
+    emotion: null
+    participants: []
+    stage_direction: char_001的手不自觉地攥紧了衣角，指节微微发白。
+    plot_line_tags:
+    - plot_main
+  - type: dialogue
+    content: char_001：有些事……不知道该从哪里说起。
+    alternatives: []
+    selected: 0
+    speaker: char_001
+    emotion: 压抑
+    participants:
+    - character_id: char_001
+      role: speaker
+      dialogue: 有些事……不知道该从哪里说起。
+    - character_id: char_002
+      role: listener
+      dialogue: null
+    stage_direction: null
+    plot_line_tags:
+    - plot_main
+  media_hints:
+    camera: 特写（面部表情）
+    music: 环境音为主，远处车流声
+  chapter_id: ch_001
+  characters_present:
+  - char_001
+  - char_002
+  plot_lines:
+  - plot_main
+- id: 3
+  location: 办公室 · 会议室
+  time: 中午 12:15
+  emotion_intensity: 0.6
+  beats:
+  - type: action
+    content: char_001转过身，发现char_002不知何时站在了身后，表情复杂地看着自己。
+    alternatives: []
+    selected: 0
+    speaker: null
+    emotion: null
+    participants: []
+    stage_direction: 空气仿佛凝固了。char_001深吸一口气，试图让自己平静下来。
+    plot_line_tags:
+    - plot_main
+  - type: dialogue
+    content: char_002：你不用解释，我都明白。
+    alternatives: []
+    selected: 0
+    speaker: char_001
+    emotion: 激动
+    participants:
+    - character_id: char_001
+      role: speaker
+      dialogue: ……
+    - character_id: char_002
+      role: speaker
+      dialogue: 你不用解释，我都明白。
+    stage_direction: null
+    plot_line_tags:
+    - plot_main
+  media_hints:
+    camera: 过肩镜头
+    music: 弦乐四重奏，紧张感递增
+  chapter_id: ch_001
+  characters_present:
+  - char_001
+  - char_002
+  plot_lines:
+  - plot_main
+- id: 4
+  location: 公寓 · 客厅
+  time: 下午 3:40
+  emotion_intensity: 0.75
+  beats:
+  - type: action
+    content: 风把桌上的文件吹散了一地。char_001蹲下身一张张捡起，手指在某一页停住了。
+    alternatives: []
+    selected: 0
+    speaker: null
+    emotion: null
+    participants: []
+    stage_direction: 窗外传来一声闷雷，char_001的身体明显抖了一下。
+    plot_line_tags:
+    - plot_main
+  - type: dialogue
+    content: char_001：这件事我必须自己做决定。不管结果如何，我不会后悔。
+    alternatives: []
+    selected: 0
+    speaker: char_001
+    emotion: 悲伤
+    participants:
+    - character_id: char_001
+      role: speaker
+      dialogue: 这件事我必须自己做决定。不管结果如何，我不会后悔。
+    - character_id: char_002
+      role: observer
+      dialogue: null
+    stage_direction: null
+    plot_line_tags:
+    - plot_main
+  media_hints:
+    camera: 低角度仰拍
+    music: 静默（只有呼吸声）
+  chapter_id: ch_001
+  characters_present:
+  - char_001
+  - char_002
+  plot_lines:
+  - plot_main
+- id: 5
+  location: 医院走廊
+  time: 凌晨 2:00
+  emotion_intensity: 0.3
+  beats:
+  - type: action
+    content: 镜子里的倒影让char_001愣了一下——这还是自己认识的那个样子吗？
+    alternatives: []
+    selected: 0
+    speaker: null
+    emotion: null
+    participants: []
+    stage_direction: char_001缓缓抬起头，眼神中闪过一丝不易察觉的情绪波动。
+    plot_line_tags:
+    - plot_main
+    - plot_sub1
+  - type: dialogue
+    content: char_001：你什么时候回来的？怎么不说一声。
+    alternatives: []
+    selected: 0
+    speaker: char_001
+    emotion: 平静但暗藏波澜
+    participants:
+    - character_id: char_001
+      role: speaker
+      dialogue: 你什么时候回来的？怎么不说一声。
+    - character_id: char_002
+      role: listener
+      dialogue: null
+    stage_direction: null
+    plot_line_tags:
+    - plot_main
+    - plot_sub1
+  media_hints:
+    camera: 全景 → 缓慢推进至中景
+    music: 钢琴独奏，缓慢渐入
+  chapter_id: ch_002
+  characters_present:
+  - char_001
+  - char_002
+  plot_lines:
+  - plot_main
+  - plot_sub1
+- id: 6
+  location: 学校操场 · 傍晚
+  time: 早上 7:10
+  emotion_intensity: 0.44999999999999996
+  beats:
+  - type: action
+    content: 阳光从char_001的侧面照进来，char_001站在窗边，目光落在远处的城市轮廓上。
+    alternatives: []
+    selected: 0
+    speaker: null
+    emotion: null
+    participants: []
+    stage_direction: char_001的手不自觉地攥紧了衣角，指节微微发白。
+    plot_line_tags:
+    - plot_main
+    - plot_sub1
+  - type: dialogue
+    content: char_001：有些事……不知道该从哪里说起。
+    alternatives: []
+    selected: 0
+    speaker: char_001
+    emotion: 压抑
+    participants:
+    - character_id: char_001
+      role: speaker
+      dialogue: 有些事……不知道该从哪里说起。
+    - character_id: char_002
+      role: listener
+      dialogue: null
+    stage_direction: null
+    plot_line_tags:
+    - plot_main
+    - plot_sub1
+  media_hints:
+    camera: 特写（面部表情）
+    music: 环境音为主，远处车流声
+  chapter_id: ch_002
+  characters_present:
+  - char_001
+  - char_002
+  plot_lines:
+  - plot_main
+  - plot_sub1
+- id: 7
+  location: 便利店 · 夜间
+  time: 午后 1:30
+  emotion_intensity: 0.6
+  beats:
+  - type: action
+    content: char_001推开门，脚步声在空旷的房间里回荡。空气中弥漫着灰尘的味道。
+    alternatives: []
+    selected: 0
+    speaker: null
+    emotion: null
+    participants: []
+    stage_direction: 空气仿佛凝固了。char_001深吸一口气，试图让自己平静下来。
+    plot_line_tags:
+    - plot_main
+    - plot_sub1
+  - type: dialogue
+    content: char_002：你不用解释，我都明白。
+    alternatives: []
+    selected: 0
+    speaker: char_001
+    emotion: 激动
+    participants:
+    - character_id: char_001
+      role: speaker
+      dialogue: ……
+    - character_id: char_002
+      role: speaker
+      dialogue: 你不用解释，我都明白。
+    stage_direction: null
+    plot_line_tags:
+    - plot_main
+    - plot_sub1
+  media_hints:
+    camera: 过肩镜头
+    music: 弦乐四重奏，紧张感递增
+  chapter_id: ch_002
+  characters_present:
+  - char_001
+  - char_002
+  plot_lines:
+  - plot_main
+  - plot_sub1
+- id: 8
+  location: 天台
+  time: 黄昏 5:50
+  emotion_intensity: 0.75
+  beats:
+  - type: action
+    content: 一场突如其来的大雨把char_001困在了屋檐下。char_001看了看手机——没有信号。
+    alternatives: []
+    selected: 0
+    speaker: null
+    emotion: null
+    participants: []
+    stage_direction: 窗外传来一声闷雷，char_001的身体明显抖了一下。
+    plot_line_tags:
+    - plot_main
+    - plot_sub1
+  - type: dialogue
+    content: char_001：这件事我必须自己做决定。不管结果如何，我不会后悔。
+    alternatives: []
+    selected: 0
+    speaker: char_001
+    emotion: 悲伤
+    participants:
+    - character_id: char_001
+      role: speaker
+      dialogue: 这件事我必须自己做决定。不管结果如何，我不会后悔。
+    - character_id: char_002
+      role: observer
+      dialogue: null
+    stage_direction: null
+    plot_line_tags:
+    - plot_main
+    - plot_sub1
+  media_hints:
+    camera: 低角度仰拍
+    music: 静默（只有呼吸声）
+  chapter_id: ch_002
+  characters_present:
+  - char_001
+  - char_002
+  plot_lines:
+  - plot_main
+  - plot_sub1
+- id: 9
+  location: 老城区巷弄
+  time: 深夜 11:20
+  emotion_intensity: 0.8999999999999999
+  beats:
+  - type: action
+    content: 桌上摊开的旧照片吸引了char_001的注意。照片边缘已经泛黄，上面的人影模糊不清。
+    alternatives: []
+    selected: 0
+    speaker: null
+    emotion: null
+    participants: []
+    stage_direction: char_001转身背对过去，肩膀微微颤抖。
+    plot_line_tags:
+    - plot_main
+    - plot_sub1
+  - type: dialogue
+    content: char_001：（沉默良久）……走吧。
+    alternatives: []
+    selected: 0
+    speaker: char_001
+    emotion: 坚定
+    participants:
+    - character_id: char_001
+      role: speaker
+      dialogue: （沉默良久）……走吧。
+    - character_id: char_002
+      role: listener
+      dialogue: null
+    stage_direction: null
+    plot_line_tags:
+    - plot_main
+    - plot_sub1
+  media_hints:
+    camera: 手持跟拍
+    music: 吉他扫弦，情绪转折点
+  chapter_id: ch_002
+  characters_present:
+  - char_001
+  - char_002
+  plot_lines:
+  - plot_main
+  - plot_sub1
+- id: 10
+  location: 机场候机厅
+  time: 数日后的清晨
+  emotion_intensity: 0.3
+  beats:
+  - type: action
+    content: 镜子里的倒影让char_001愣了一下——这还是自己认识的那个样子吗？
+    alternatives: []
+    selected: 0
+    speaker: null
+    emotion: null
+    participants: []
+    stage_direction: char_001缓缓抬起头，眼神中闪过一丝不易察觉的情绪波动。
+    plot_line_tags:
+    - plot_main
+    - plot_sub1
+  - type: dialogue
+    content: char_001：你什么时候回来的？怎么不说一声。
+    alternatives: []
+    selected: 0
+    speaker: char_001
+    emotion: 平静但暗藏波澜
+    participants:
+    - character_id: char_001
+      role: speaker
+      dialogue: 你什么时候回来的？怎么不说一声。
+    - character_id: char_002
+      role: listener
+      dialogue: null
+    stage_direction: null
+    plot_line_tags:
+    - plot_main
+    - plot_sub1
+  media_hints:
+    camera: 全景 → 缓慢推进至中景
+    music: 钢琴独奏，缓慢渐入
+  chapter_id: ch_003
+  characters_present:
+  - char_001
+  - char_002
+  plot_lines:
+  - plot_main
+  - plot_sub1
+- id: 11
+  location: 火车站月台
+  time: 某个阴雨午后
+  emotion_intensity: 0.44999999999999996
+  beats:
+  - type: action
+    content: 阳光从char_001的侧面照进来，char_001站在窗边，目光落在远处的城市轮廓上。
+    alternatives: []
+    selected: 0
+    speaker: null
+    emotion: null
+    participants: []
+    stage_direction: char_001的手不自觉地攥紧了衣角，指节微微发白。
+    plot_line_tags:
+    - plot_main
+    - plot_sub1
+  - type: dialogue
+    content: char_001：有些事……不知道该从哪里说起。
+    alternatives: []
+    selected: 0
+    speaker: char_001
+    emotion: 压抑
+    participants:
+    - character_id: char_001
+      role: speaker
+      dialogue: 有些事……不知道该从哪里说起。
+    - character_id: char_002
+      role: listener
+      dialogue: null
+    stage_direction: null
+    plot_line_tags:
+    - plot_main
+    - plot_sub1
+  media_hints:
+    camera: 特写（面部表情）
+    music: 环境音为主，远处车流声
+  chapter_id: ch_003
+  characters_present:
+  - char_001
+  - char_002
+  plot_lines:
+  - plot_main
+  - plot_sub1
+- id: 12
+  location: 酒店大堂
+  time: 风暴来临前夜
+  emotion_intensity: 0.6
+  beats:
+  - type: action
+    content: char_001推开门，脚步声在空旷的房间里回荡。空气中弥漫着灰尘的味道。
+    alternatives: []
+    selected: 0
+    speaker: null
+    emotion: null
+    participants: []
+    stage_direction: 空气仿佛凝固了。char_001深吸一口气，试图让自己平静下来。
+    plot_line_tags:
+    - plot_main
+    - plot_sub1
+  - type: dialogue
+    content: char_002：你不用解释，我都明白。
+    alternatives: []
+    selected: 0
+    speaker: char_001
+    emotion: 激动
+    participants:
+    - character_id: char_001
+      role: speaker
+      dialogue: ……
+    - character_id: char_002
+      role: speaker
+      dialogue: 你不用解释，我都明白。
+    stage_direction: null
+    plot_line_tags:
+    - plot_main
+    - plot_sub1
+  media_hints:
+    camera: 过肩镜头
+    music: 弦乐四重奏，紧张感递增
+  chapter_id: ch_003
+  characters_present:
+  - char_001
+  - char_002
+  plot_lines:
+  - plot_main
+  - plot_sub1
+- id: 13
+  location: 宴会厅
+  time: 黎明时分
+  emotion_intensity: 0.75
+  beats:
+  - type: action
+    content: 一场突如其来的大雨把char_001困在了屋檐下。char_001看了看手机——没有信号。
+    alternatives: []
+    selected: 0
+    speaker: null
+    emotion: null
+    participants: []
+    stage_direction: 窗外传来一声闷雷，char_001的身体明显抖了一下。
+    plot_line_tags:
+    - plot_main
+    - plot_sub1
+  - type: dialogue
+    content: char_001：这件事我必须自己做决定。不管结果如何，我不会后悔。
+    alternatives: []
+    selected: 0
+    speaker: char_001
+    emotion: 悲伤
+    participants:
+    - character_id: char_001
+      role: speaker
+      dialogue: 这件事我必须自己做决定。不管结果如何，我不会后悔。
+    - character_id: char_002
+      role: observer
+      dialogue: null
+    stage_direction: null
+    plot_line_tags:
+    - plot_main
+    - plot_sub1
+  media_hints:
+    camera: 低角度仰拍
+    music: 静默（只有呼吸声）
+  chapter_id: ch_003
+  characters_present:
+  - char_001
+  - char_002
+  plot_lines:
+  - plot_main
+  - plot_sub1
+- id: 14
+  location: 停车场地下层
+  time: 最后的时刻
+  emotion_intensity: 0.8999999999999999
+  beats:
+  - type: action
+    content: 桌上摊开的旧照片吸引了char_001的注意。照片边缘已经泛黄，上面的人影模糊不清。
+    alternatives: []
+    selected: 0
+    speaker: null
+    emotion: null
+    participants: []
+    stage_direction: char_001转身背对过去，肩膀微微颤抖。
+    plot_line_tags:
+    - plot_main
+    - plot_sub1
+  - type: dialogue
+    content: char_001：（沉默良久）……走吧。
+    alternatives: []
+    selected: 0
+    speaker: char_001
+    emotion: 坚定
+    participants:
+    - character_id: char_001
+      role: speaker
+      dialogue: （沉默良久）……走吧。
+    - character_id: char_002
+      role: listener
+      dialogue: null
+    stage_direction: null
+    plot_line_tags:
+    - plot_main
+    - plot_sub1
+  media_hints:
+    camera: 手持跟拍
+    music: 吉他扫弦，情绪转折点
+  chapter_id: ch_003
+  characters_present:
+  - char_001
+  - char_002
+  plot_lines:
+  - plot_main
+  - plot_sub1
+- id: 15
+  location: 机场候机厅
+  time: 转折之后
+  emotion_intensity: 1.05
+  beats:
+  - type: action
+    content: char_001转过身，发现char_002不知何时站在了身后，表情复杂地看着自己。
+    alternatives: []
+    selected: 0
+    speaker: null
+    emotion: null
+    participants: []
+    stage_direction: 一阵风吹过，吹乱了char_001的头发，也吹散了两人之间最后一点默契。
+    plot_line_tags:
+    - plot_main
+    - plot_sub1
+  - type: dialogue
+    content: char_001：你以为我想这样吗？
+    alternatives: []
+    selected: 0
+    speaker: char_001
+    emotion: 平静但暗藏波澜
+    participants:
+    - character_id: char_001
+      role: speaker
+      dialogue: 你以为我想这样吗？
+    - character_id: char_002
+      role: listener
+      dialogue: null
+    stage_direction: null
+    plot_line_tags:
+    - plot_main
+    - plot_sub1
+  media_hints:
+    camera: 固定机位 → 人物入画
+    music: 钢琴独奏，缓慢渐入
+  chapter_id: ch_003
+  characters_present:
+  - char_001
+  - char_002
+  plot_lines:
+  - plot_main
+  - plot_sub1
+chapters:
+- id: ch_001
+  title: 阳光下的相遇
+  plot_line: plot_main
+  summary: 林曦在图书馆复习，顾言坐在对面，因书本掉落而开始对话
+  scene_ids:
+  - 1
+  - 2
+  - 3
+  - 4
+  order: 1
+- id: ch_002
+  title: 渐近的距离
+  plot_line: plot_main
+  summary: 两人在图书馆、咖啡馆、校园各处频繁相遇，逐渐了解彼此
+  scene_ids:
+  - 5
+  - 6
+  - 7
+  - 8
+  - 9
+  order: 2
+- id: ch_003
+  title: 意外的真相
+  plot_line: plot_main
+  summary: 林曦发现顾言是实习公司部门主管，关系变得复杂
+  scene_ids:
+  - 10
+  - 11
+  - 12
+  - 13
+  - 14
+  - 15
+  order: 3

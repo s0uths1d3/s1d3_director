@@ -112,7 +112,7 @@ pub async fn build_relation_network(
             safe_truncate(script_yaml, 5000)
         );
 
-        let response = call_deepseek(&prompt, api_key, base_url, None, true).await?;
+        let response = call_deepseek(&prompt, api_key, base_url, None, true, "deepseek-chat").await?;
         if let Ok(rn) = serde_json::from_str::<RelationNetworkResponse>(&response) {
             return Ok(relation_response_to_data(&rn));
         }
@@ -142,7 +142,7 @@ pub async fn update_with_scenes(
             safe_truncate(script_yaml, 5000)
         );
 
-        if let Ok(response) = call_deepseek(&prompt, api_key, base_url, None, true).await {
+        if let Ok(response) = call_deepseek(&prompt, api_key, base_url, None, true, "deepseek-chat").await {
             if let Ok(updates) = serde_json::from_str::<serde_json::Value>(&response) {
                 if let Some(matrix) = updates.get("matrix").and_then(|m| m.as_array()) {
                     for item in matrix {

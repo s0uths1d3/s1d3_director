@@ -49,19 +49,21 @@ struct DeepSeekUsage {
 }
 
 /// 调用 DeepSeek API（或模拟模式）
-/// 
+///
 /// # 参数
 /// - `prompt`: 用户提示词或系统提示+用户消息
 /// - `api_key`: API Key，为空或 "mock" 时启用模拟模式
 /// - `base_url`: API 基础 URL
 /// - `system_prompt`: 可选的系统提示词
 /// - `json_mode`: 是否要求返回 JSON 格式
+/// - `model`: 模型名称（如 "deepseek-chat"）
 pub async fn call_deepseek(
     prompt: &str,
     api_key: &str,
     base_url: &str,
     system_prompt: Option<&str>,
     json_mode: bool,
+    model: &str,
 ) -> Result<String, String> {
     // 模式模式判断
     let is_mock = api_key.is_empty() || api_key == "mock";
@@ -87,7 +89,7 @@ pub async fn call_deepseek(
     // 构建请求体
     let msg_count = messages.len();
     let mut request = DeepSeekRequest {
-        model: "deepseek-v4-flash".to_string(),
+        model: model.to_string(),
         messages,
         temperature: Some(0.7),
         response_format: None,
@@ -105,7 +107,7 @@ pub async fn call_deepseek(
     let base_url_trimmed = base_url.trim_end_matches('/');
     let url = format!("{}/v1/chat/completions", base_url_trimmed);
 
-    tracing::info!(url = %url, model = "deepseek-v4-flash", msg_count = msg_count, "Calling DeepSeek API");
+    tracing::info!(url = %url, model = %model, msg_count = msg_count, "Calling DeepSeek API");
 
     // 验证 URL 有效性
     let parsed_url = reqwest::Url::parse(&url)
@@ -235,4 +237,51 @@ fn mock_script_json() -> String {
     }
   ]
 }"#.to_string()
+}
+
+// ==================== 辅助函数 =====
+
+/// 根据任务类型选择模型
+pub fn select_model(task_type: &str) -> &'static str {
+    match task_type {
+        "analysis" | "emotion" => "deepseek-chat",
+        "generation" => "deepseek-chat",
+        _ => "deepseek-chat",
+    }
+}
+
+/// 粗略估算中文字符数对应的 token 数（中文约 1.5 token/字符）
+pub fn estimate_tokens(text: &str) -> usize {
+    text.chars().count() * 3 / 2  // 粗略估算
+}
+
+/// 并行调用多个 LLM 请求，返回所有结果
+/// 使用 tokio::sync::Semaphore 控制并发数
+pub async fn call_parallel<Fut, T>(
+    futures: Vec<Fut>,
+    max_concurrent: usize,
+) -> Vec<Result<T, String>>
+where
+    Fut: std::future::Future<Output = Result<T, String>> + Send + 'static,
+    T: Send + 'static,
+{
+    use tokio::sync::Semaphore;
+    use std::sync::Arc;
+
+    let semaphore = Arc::new(Semaphore::new(max_concurrent));
+    let mut handles = Vec::with_capacity(futures.len());
+
+    for fut in futures {
+        let permit = semaphore.clone();
+        handles.push(tokio::spawn(async move {
+            let _permit = permit.acquire().await.unwrap();
+            fut.await
+        }));
+    }
+
+    let mut results = Vec::with_capacity(handles.len());
+    for handle in handles {
+        results.push(handle.await.unwrap_or(Err("任务执行失败".to_string())));
+    }
+    results
 }

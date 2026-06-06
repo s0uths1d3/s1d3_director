@@ -88,7 +88,17 @@
 
       <!-- 第二行：情绪滑块 + media_hints（展开时显示完整，折叠时精简） -->
       <transition name="slide-fade">
-        <div v-show="isExpanded" class="flex items-center gap-4">
+        <div v-show="isExpanded" class="flex items-center gap-4 flex-wrap">
+          <!-- 场景增强信息：情节线 + 出场角色 -->
+          <div class="scene-meta-row flex items-center gap-3 w-full mb-1">
+            <span v-if="scene.plot_lines?.length" class="plot-tags flex items-center gap-1">
+              <span v-for="pl in scene.plot_lines" :key="pl" class="plot-tag text-[10px] px-1.5 py-0.5 rounded bg-indigo-500/10 text-indigo-300">{{ pl }}</span>
+            </span>
+            <span v-if="scene.characters_present?.length" class="chars-present text-[10px] text-slate-500">
+              出场: {{ scene.characters_present.join(' / ') }}
+            </span>
+          </div>
+
           <!-- 情绪强度滑块 -->
           <div class="flex items-center gap-2 flex-1 max-w-xs">
             <span class="text-[10px] text-slate-500 whitespace-nowrap">情绪强度</span>
@@ -123,27 +133,56 @@
     >
       <div v-show="isExpanded" ref="contentRef" class="overflow-hidden">
         <div class="divide-y divide-slate-700/20">
-          <BeatCard
-            v-for="(beat, idx) in scene.beats"
-            :key="idx"
-            :scene-id="scene.id"
-            :beat-index="idx"
-            :beat="beat"
-            :is-active="isActive && activeBeatIndex === idx"
-            :is-regenerating="regeneratingBeatIdx === `${scene.id}:${idx}`"
-            @update-content="(content) => emit('update-beat', idx, content)"
-            @update-type="(newType) => emit('update-beat-type', idx, newType)"
-            @update-speaker="(speaker) => emit('update-speaker', idx, speaker)"
-            @update-emotion="(emotion) => emit('update-emotion', idx, emotion)"
-            @select-alt="(altIdx) => emit('select-alt', idx, altIdx)"
-            @remove-alt="(altIdx) => emit('remove-alt', idx, altIdx)"
-            @add-alt="(content, opts) => emit('add-alt', idx, content, opts)"
-            @delete="emit('delete-beat', idx)"
-            @ai-regenerate="() => emit('ai-regenerate-beat', idx)"
-            @move-up="() => emit('move-beat', idx, 'up')"
-            @move-down="() => emit('move-beat', idx, 'down')"
-            @toggle-history="() => emit('toggle-history', idx)"
-          />
+          <template v-for="(beat, idx) in scene.beats" :key="idx">
+            <!-- 群戏 beat（多个参与者）— 聊天式布局 -->
+            <div v-if="isGroupBeat(beat)" class="beat-group px-4 py-3 bg-slate-800/20">
+              <!-- 舞台指示 -->
+              <div v-if="beat.stage_direction" class="stage-direction text-xs text-amber-400/80 italic mb-2 pl-3 border-l-2 border-amber-500/30">
+                🎬 {{ beat.stage_direction }}
+              </div>
+              <!-- 参与者列表 -->
+              <div class="space-y-1.5">
+                <div v-for="p in beat.participants" :key="p.character_id"
+                     class="participant-line flex items-start gap-2 text-sm"
+                     :class="'role-' + p.role">
+                  <span class="participant-name font-medium shrink-0"
+                    :class="{
+                      'text-blue-300': p.role === 'speaker',
+                      'text-slate-400': p.role === 'listener',
+                      'text-slate-500': p.role === 'observer',
+                    }">{{ getCharacterName(p.character_id) }}</span>
+                  <span v-if="p.dialogue" class="participant-dialogue text-slate-200">: {{ p.dialogue }}</span>
+                  <span v-else class="participant-role-hint text-slate-600 text-xs italic">({{ p.role === 'speaker' ? '说话' : p.role === 'listener' ? '倾听' : '观察' }})</span>
+                </div>
+              </div>
+              <!-- 情节线标签 -->
+              <div v-if="beat.plot_line_tags?.length" class="flex gap-1 mt-2 pt-2 border-t border-slate-700/20">
+                <span v-for="tag in beat.plot_line_tags" :key="tag" class="text-[10px] px-1.5 py-0.5 rounded bg-purple-500/10 text-purple-300">{{ tag }}</span>
+              </div>
+            </div>
+
+            <!-- 普通对话 beat（单个 speaker）— 使用 BeatCard -->
+            <BeatCard
+              v-else
+              :scene-id="scene.id"
+              :beat-index="idx"
+              :beat="beat"
+              :is-active="isActive && activeBeatIndex === idx"
+              :is-regenerating="regeneratingBeatIdx === `${scene.id}:${idx}`"
+              @update-content="(content) => emit('update-beat', idx, content)"
+              @update-type="(newType) => emit('update-beat-type', idx, newType)"
+              @update-speaker="(speaker) => emit('update-speaker', idx, speaker)"
+              @update-emotion="(emotion) => emit('update-emotion', idx, emotion)"
+              @select-alt="(altIdx) => emit('select-alt', idx, altIdx)"
+              @remove-alt="(altIdx) => emit('remove-alt', idx, altIdx)"
+              @add-alt="(content, opts) => emit('add-alt', idx, content, opts)"
+              @delete="emit('delete-beat', idx)"
+              @ai-regenerate="() => emit('ai-regenerate-beat', idx)"
+              @move-up="() => emit('move-beat', idx, 'up')"
+              @move-down="() => emit('move-beat', idx, 'down')"
+              @toggle-history="() => emit('toggle-history', idx)"
+            />
+          </template>
 
           <!-- 添加节拍按钮 -->
           <button
@@ -164,7 +203,10 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
 import BeatCard from '~/components/BeatCard.vue'
-import type { Scene } from '~/stores/scriptStore'
+import type { Scene, Beat } from '~/stores/scriptStore'
+import { useScriptStore } from '~/stores/scriptStore'
+
+const scriptStore = useScriptStore()
 
 interface Props {
   scene: Scene
@@ -213,6 +255,16 @@ const contentRef = ref<HTMLElement>()
 
 function toggleExpand() {
   isExpanded.value = !isExpanded.value
+}
+
+/** 获取角色名称 */
+function getCharacterName(characterId: string): string {
+  return scriptStore.getCharacterName(characterId)
+}
+
+/** 判断 beat 是否为群戏 beat（有 participants） */
+function isGroupBeat(beat: Beat): boolean {
+  return !!beat.participants && beat.participants.length > 0
 }
 
 // ---- Vue Transition 动画钩子：实现平滑高度过渡 ----

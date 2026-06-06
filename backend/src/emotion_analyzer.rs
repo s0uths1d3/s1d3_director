@@ -31,7 +31,7 @@ pub async fn analyze_emotions(
             safe_truncate(text, 5000)
         );
 
-        let response = call_deepseek(&prompt, api_key, base_url, None, true).await?;
+        let response = call_deepseek(&prompt, api_key, base_url, None, true, "deepseek-chat").await?;
 
         // 尝试从 LLM 响应中解析 JSON
         if let Ok(curve) = serde_json::from_str::<EmotionalCurve>(&response) {

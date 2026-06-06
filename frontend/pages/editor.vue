@@ -155,13 +155,22 @@
         <!-- 选项卡切换 -->
         <div class="flex-shrink-0 flex border-b border-slate-700/50">
           <button
+            @click="leftTab = 'outline'"
+            class="flex-1 px-3 py-2 text-xs font-medium transition-colors"
+            :class="leftTab === 'outline'
+              ? 'text-emerald-400 border-b-2 border-emerald-400 bg-emerald-500/5'
+              : 'text-slate-400 hover:text-slate-200'"
+          >
+            大纲
+          </button>
+          <button
             @click="leftTab = 'causal'"
             class="flex-1 px-3 py-2 text-xs font-medium transition-colors"
             :class="leftTab === 'causal'
               ? 'text-indigo-400 border-b-2 border-indigo-400 bg-indigo-500/5'
               : 'text-slate-400 hover:text-slate-200'"
           >
-            因果图谱
+            因果
           </button>
           <button
             @click="leftTab = 'relation'"
@@ -170,14 +179,65 @@
               ? 'text-purple-400 border-b-2 border-purple-400 bg-purple-500/5'
               : 'text-slate-400 hover:text-slate-200'"
           >
-            关系网络
+            关系
           </button>
         </div>
 
         <!-- 图谱内容区 -->
         <div class="flex-1 overflow-auto p-3">
           <ClientOnly>
-            <CausalGraph v-if="leftTab === 'causal'" />
+            <!-- 大纲 tab 内容 -->
+            <div v-if="leftTab === 'outline'" class="outline-panel space-y-4">
+              <!-- 章节列表 -->
+              <div v-if="scriptStore.chapters.length > 0">
+                <h4 class="text-xs font-medium text-slate-400 uppercase tracking-wider mb-2">章节导航</h4>
+                <div v-for="ch in scriptStore.chapters" :key="ch.id"
+                     class="chapter-item p-2.5 rounded-lg cursor-pointer transition-all"
+                     :class="activeChapterId === ch.id ? 'bg-emerald-500/10 border border-emerald-500/30' : 'bg-slate-800/40 border border-transparent hover:border-slate-600/50 hover:bg-slate-800/60'"
+                     @click="scrollToChapter(ch)">
+                  <div class="chapter-title text-sm font-medium text-white">{{ ch.title }}</div>
+                  <div v-if="ch.summary" class="chapter-summary text-[11px] text-slate-500 mt-0.5 line-clamp-2">{{ ch.summary }}</div>
+                  <div class="chapter-scenes text-[10px] text-slate-600 mt-1 flex items-center gap-2">
+                    <span>{{ ch.scene_ids.length }} 场景</span>
+                    <span v-if="ch.plot_line" class="px-1.5 py-0.5 rounded bg-indigo-500/10 text-indigo-400">{{ ch.plot_line }}</span>
+                    <span v-else class="text-slate-600">主线</span>
+                  </div>
+                </div>
+              </div>
+              <div v-else class="text-center text-slate-600 text-xs py-4">
+                暂无章节数据
+              </div>
+
+              <!-- 角色列表 -->
+              <div class="characters-section border-t border-slate-700/30 pt-4">
+                <h4 class="text-xs font-medium text-slate-400 uppercase tracking-wider mb-2">角色 ({{ scriptStore.characters.length }})</h4>
+                <div class="space-y-2">
+                  <div v-for="char in scriptStore.characters" :key="char.id" class="character-mini p-2 rounded-lg bg-slate-800/40">
+                    <div class="flex items-center gap-2">
+                      <strong class="text-sm text-white">{{ char.name }}</strong>
+                      <span v-if="char.arc_summary" class="arc text-[10px] px-1.5 py-0.5 rounded bg-purple-500/10 text-purple-300 truncate max-w-[120px]" :title="char.arc_summary">{{ char.arc_summary }}</span>
+                    </div>
+                    <div v-if="char.motivation" class="text-[10px] text-slate-500 mt-0.5">动机: {{ char.motivation }}</div>
+                    <div v-if="char.relationships?.length" class="relations flex flex-wrap gap-1 mt-1">
+                      <span v-for="r in char.relationships" :key="r.target_character_id"
+                            class="rel-tag text-[10px] px-1.5 py-0.5 rounded"
+                            :class="{
+                              'bg-red-500/10 text-red-300': r.relation_type === 'romance',
+                              'bg-blue-500/10 text-blue-300': r.relation_type === 'family',
+                              'bg-amber-500/10 text-amber-300': r.relation_type === 'rivalry',
+                              'bg-emerald-500/10 text-emerald-300': r.relation_type === 'mentor' || r.relation_type === 'alliance',
+                              'bg-slate-500/10 text-slate-400': !['romance','family','rivalry','mentor','alliance'].includes(r.relation_type),
+                            }"
+                            :title="r.description || r.relation_type">
+                        → {{ scriptStore.getCharacterName(r.target_character_id) }} ({{ r.relation_type }})
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <CausalGraph v-else-if="leftTab === 'causal'" />
             <RelationNetwork v-else />
             <template #fallback>
               <div class="flex items-center justify-center h-full text-slate-500 text-sm">
@@ -198,9 +258,15 @@
 
       <!-- 中间区域：场景卡片列表（自适应宽度） -->
       <main class="flex-1 overflow-auto p-4 space-y-4">
-        <SceneCard
-          v-for="scene in scriptStore.scenes"
-          :key="scene.id"
+        <template v-for="(scene, si) in scriptStore.scenes" :key="scene.id">
+          <!-- 章节分隔线 -->
+          <div v-if="shouldShowChapterHeader(si)" class="chapter-separator -mx-4 px-4 py-3 bg-slate-800/60 border-y border-slate-700/30 sticky top-0 z-10">
+            <h3 class="text-base font-semibold text-white">{{ getChapterTitle(scene.chapter_id) }}</h3>
+            <span v-if="getChapterPlotLine(scene.chapter_id)" class="plot-line-tag text-xs px-2 py-0.5 rounded-full bg-indigo-500/15 text-indigo-300 mt-1 inline-block">
+              {{ getChapterPlotLine(scene.chapter_id) }}
+            </span>
+          </div>
+          <SceneCard
           :scene="scene"
           :is-active="scriptStore.currentSceneId === scene.id"
           :active-beat-index="scriptStore.currentBeatIndex"
@@ -220,7 +286,8 @@
           @ai-regenerate-beat="(idx) => handleAIRegenerateBeat(scene.id, idx)"
           @move-beat="(idx, dir) => scriptStore.moveBeat(scene.id, idx, dir)"
           @toggle-history="(idx) => showHistoryPanel(scene.id, idx)"
-        />
+          />
+        </template>
 
         <!-- 修改历史面板（覆盖层） -->
         <Teleport to="body">
@@ -813,13 +880,16 @@ const {
 // ==================== UI 状态 ====================
 type LoadStatus = 'loading' | 'loaded' | 'empty' | 'error'
 
-const leftTab = ref<'causal' | 'relation'>('causal')
+const leftTab = ref<'outline' | 'causal' | 'relation'>('outline')
 const rightTab = ref<'player' | 'source'>('player')
 const showSettings = ref(false)
 const isSaving = ref(false)
 const yamlSource = ref('')
 const loadStatus = ref<LoadStatus>('loading')
 const loadError = ref('')
+
+// 章节导航状态
+const activeChapterId = ref<string>('')
 
 // 保存相关状态
 const currentScriptId = ref<string>('')
@@ -916,6 +986,41 @@ function formatTime(timestamp: number): string {
 function truncate(text: string, maxLen: number): string {
   if (text.length <= maxLen) return text
   return text.slice(0, maxLen) + '...'
+}
+
+// ==================== 章节导航辅助函数 ====================
+
+/** 获取章节标题 */
+function getChapterTitle(chapterId?: string): string {
+  if (!chapterId) return ''
+  const ch = scriptStore.chapters.find(c => c.id === chapterId)
+  return ch?.title || chapterId
+}
+
+/** 获取章节情节线 */
+function getChapterPlotLine(chapterId?: string): string {
+  if (!chapterId) return ''
+  const ch = scriptStore.chapters.find(c => c.id === chapterId)
+  return ch?.plot_line || ''
+}
+
+/** 判断是否需要在当前场景前显示章节分隔线 */
+function shouldShowChapterHeader(sceneIndex: number): boolean {
+  const scene = scriptStore.scenes[sceneIndex]
+  if (!scene?.chapter_id) return false
+  // 第一个场景始终显示（如果有 chapter_id）
+  if (sceneIndex === 0) return true
+  // 与前一个场景的 chapter_id 不同时显示
+  const prevScene = scriptStore.scenes[sceneIndex - 1]
+  return prevScene?.chapter_id !== scene.chapter_id
+}
+
+/** 点击章节项滚动到对应场景 */
+function scrollToChapter(ch: { id: string; scene_ids: number[] }) {
+  activeChapterId.value = ch.id
+  if (ch.scene_ids.length > 0) {
+    scriptStore.currentSceneId = ch.scene_ids[0]
+  }
 }
 
 // ==================== YAML 初始化（公共逻辑） ====================
