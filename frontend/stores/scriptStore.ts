@@ -5,7 +5,12 @@ import yaml from 'js-yaml'
 // 类型定义（与后端 YAML Schema 对齐）
 export interface BeatAlternative {
   content: string
+  /** 方案名称（用户自定义或系统自动生成） */
+  name?: string
+  /** 情绪/语气标签 */
   tone?: string
+  /** 方案关联的情绪值，选中时同步到 beat.emotion */
+  emotion?: string
 }
 
 export interface Beat {
@@ -229,7 +234,7 @@ export const useScriptStore = defineStore('script', () => {
     }
   }
 
-  /** 选择备选项 */
+  /** 选择备选项 — 同时同步备选方案的 emotion 到 beat */
   function selectAlternative(sceneId: number, beatIndex: number, altIndex: number) {
     if (!scriptData.value) return
     const scene = scriptData.value.scenes.find(s => s.id === sceneId)
@@ -237,9 +242,62 @@ export const useScriptStore = defineStore('script', () => {
       const beat = scene.beats[beatIndex]
       if (altIndex >= 0 && altIndex < beat.alternatives.length) {
         const oldVal = beat.content
+        const oldEmotion = beat.emotion || ''
+        const selectedAlt = beat.alternatives[altIndex]
         beat.selected = altIndex
-        beat.content = beat.alternatives[altIndex].content
+        beat.content = selectedAlt.content
+        // 同步备选方案的情绪到节拍
+        if (selectedAlt.emotion !== undefined) {
+          beat.emotion = selectedAlt.emotion
+        }
         pushModification(`scene:${sceneId}:beat:${beatIndex}`, 'content', oldVal, beat.content, 'alternative')
+        if (oldEmotion !== (beat.emotion || '')) {
+          pushModification(`scene:${sceneId}:beat:${beatIndex}`, 'emotion', oldEmotion, beat.emotion || '', 'alternative')
+        }
+        syncYamlFromData()
+      }
+    }
+  }
+
+  /** 手动添加自定义备选方案 */
+  function addCustomAlternative(
+    sceneId: number,
+    beatIndex: number,
+    content: string,
+    options?: { name?: string; emotion?: string; tone?: string },
+  ) {
+    if (!scriptData.value) return
+    const scene = scriptData.value.scenes.find(s => s.id === sceneId)
+    if (scene && scene.beats[beatIndex]) {
+      const beat = scene.beats[beatIndex]
+      // 去重检查
+      const exists = beat.alternatives.some(a => a.content === content)
+      if (exists) return false
+      beat.alternatives.push({
+        content,
+        name: options?.name || undefined,
+        emotion: options?.emotion || undefined,
+        tone: options?.tone || undefined,
+      })
+      pushModification(`scene:${sceneId}:beat:${beatIndex}`, 'content', '', content, 'manual')
+      syncYamlFromData()
+      return true
+    }
+    return false
+  }
+
+  /** 删除指定备选方案 */
+  function removeAlternative(sceneId: number, beatIndex: number, altIndex: number) {
+    if (!scriptData.value) return
+    const scene = scriptData.value.scenes.find(s => s.id === sceneId)
+    if (scene && scene.beats[beatIndex]) {
+      const beat = scene.beats[beatIndex]
+      if (altIndex >= 0 && altIndex < beat.alternatives.length) {
+        beat.alternatives.splice(altIndex, 1)
+        // 调整 selected 索引
+        if (beat.selected >= beat.alternatives.length) {
+          beat.selected = Math.max(0, beat.alternatives.length - 1)
+        }
         syncYamlFromData()
       }
     }
@@ -498,6 +556,8 @@ export const useScriptStore = defineStore('script', () => {
     updateBeatSpeaker,
     updateBeatEmotion,
     selectAlternative,
+    addCustomAlternative,
+    removeAlternative,
     applyAIRegeneration,
     applyAISceneRegeneration,
     setRegenerating,

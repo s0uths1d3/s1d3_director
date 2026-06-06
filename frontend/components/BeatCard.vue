@@ -127,28 +127,93 @@
     <div v-if="beat.alternatives && beat.alternatives.length > 0" class="mt-2 pt-2 border-t border-slate-700/20">
       <div class="flex items-center justify-between mb-1.5">
         <span class="text-[10px] text-slate-500">备选方案 ({{ beat.alternatives.length }})</span>
-        <button
-          v-if="hasHistory"
-          @click="$emit('toggle-history')"
-          class="text-[10px] text-indigo-400/70 hover:text-indigo-300 transition-colors"
-          title="查看修改历史"
-        >
-          修改记录
-        </button>
+        <div class="flex items-center gap-2">
+          <button
+            v-if="hasHistory"
+            @click="$emit('toggle-history')"
+            class="text-[10px] text-indigo-400/70 hover:text-indigo-300 transition-colors"
+            title="查看修改历史"
+          >
+            修改记录
+          </button>
+          <button
+            @click="showAddAltForm = true"
+            class="text-[10px] text-emerald-400/70 hover:text-emerald-300 transition-colors flex items-center gap-0.5"
+            title="添加自定义备选方案"
+          >
+            <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
+            添加方案
+          </button>
+        </div>
       </div>
+
+      <!-- 添加自定义方案表单 -->
+      <div v-if="showAddAltForm" class="mb-2 p-2 rounded-lg bg-slate-900/60 border border-emerald-500/20 space-y-1.5">
+        <div class="flex items-center gap-2">
+          <input
+            ref="altNameInputRef"
+            v-model="newAltName"
+            placeholder="方案名称（可选）"
+            class="flex-1 min-w-0 bg-slate-950 border border-slate-700 rounded px-2 py-1 text-[11px] text-slate-200 placeholder:text-slate-600 focus:outline-none focus:border-emerald-500/50"
+            @keydown.enter="confirmAddAlternative"
+            @keydown.escape="showAddAltForm = false"
+          />
+          <input
+            v-model="newAltEmotion"
+            placeholder="情绪（可选）"
+            class="w-20 bg-slate-950 border border-slate-700 rounded px-2 py-1 text-[11px] text-slate-200 placeholder:text-slate-600 focus:outline-none focus:border-emerald-500/50"
+            @keydown.enter="confirmAddAlternative"
+            @keydown.escape="showAddAltForm = false"
+          />
+        </div>
+        <textarea
+          ref="altContentInputRef"
+          v-model="newAltContent"
+          placeholder="输入备选内容..."
+          rows="2"
+          class="w-full bg-slate-950 border border-slate-700 rounded px-2 py-1 text-[11px] text-slate-200 placeholder:text-slate-600 focus:outline-none focus:border-emerald-500/50 resize-none"
+          @keydown.enter.exact.prevent="confirmAddAlternative"
+          @keydown.escape="showAddAltForm = false"
+        ></textarea>
+        <div class="flex justify-end gap-1.5">
+          <button
+            @click="showAddAltForm = false; resetAltForm()"
+            class="px-2 py-0.5 text-[10px] text-slate-400 hover:text-white transition-colors"
+          >取消</button>
+          <button
+            @click="confirmAddAlternative"
+            :disabled="!newAltContent.trim()"
+            class="px-2 py-0.5 text-[10px] bg-emerald-600/80 hover:bg-emerald-500 text-white rounded transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+          >确认添加</button>
+        </div>
+      </div>
+
+      <!-- 方案列表 -->
       <div class="flex flex-wrap gap-1.5">
-        <button
+        <div
           v-for="(alt, altIdx) in beat.alternatives"
           :key="altIdx"
-          @click="$emit('select-alt', altIdx)"
-          class="px-2 py-1 text-[11px] rounded-md border transition-all group-alt"
+          class="group-alt flex items-center gap-0.5 px-2 py-1 text-[11px] rounded-md border transition-all cursor-pointer"
           :class="beat.selected === altIdx
             ? 'border-indigo-500 bg-indigo-500/15 text-indigo-300'
             : 'border-slate-700/50 text-slate-400 hover:border-slate-600 hover:text-slate-300'"
+          @click="$emit('select-alt', altIdx)"
         >
-          <span class="font-medium">方案{{ altIdx + 1 }}</span>
-          <span v-if="alt.tone" class="ml-1 opacity-60">({{ alt.tone }})</span>
-        </button>
+          <!-- 方案名称 / 默认编号 -->
+          <span class="font-medium shrink-0">{{ alt.name || `方案${altIdx + 1}` }}</span>
+          <!-- tone 标签 -->
+          <span v-if="alt.tone && !alt.name" class="opacity-60 shrink-0">({{ alt.tone }})</span>
+          <!-- emotion 标签 -->
+          <span v-if="alt.emotion" class="ml-0.5 opacity-50 shrink-0 text-[10px]" :title="'情绪: ' + alt.emotion">{{ alt.emotion }}</span>
+          <!-- 删除按钮 -->
+          <button
+            @click.stop="$emit('remove-alt', altIdx)"
+            class="ml-0.5 opacity-0 group-hover:group-alt:opacity-100 text-slate-600 hover:text-red-400 transition-all shrink-0 leading-none"
+            title="删除此方案"
+          >
+            <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+          </button>
+        </div>
       </div>
     </div>
   </div>
@@ -178,6 +243,8 @@ const emit = defineEmits<{
   'update-speaker': [speaker: string]
   'update-emotion': [emotion: string]
   'select-alt': [altIndex: number]
+  'remove-alt': [altIndex: number]
+  'add-alt': [content: string, options: { name?: string; emotion?: string }]
   delete: []
   'ai-regenerate': []
   'move-up': []
@@ -192,6 +259,14 @@ const emotionInput = ref(props.beat.emotion || '')
 const showTypeMenu = ref(false)
 const showEmotionInput = ref(false)
 const emotionEl = ref<HTMLInputElement | null>(null)
+
+// 自定义备选方案表单
+const showAddAltForm = ref(false)
+const newAltName = ref('')
+const newAltContent = ref('')
+const newAltEmotion = ref('')
+const altNameInputRef = ref<HTMLInputElement | null>(null)
+const altContentInputRef = ref<HTMLTextAreaElement | null>(null)
 
 // 类型列表
 const beatTypes = BEAT_TYPES
@@ -257,6 +332,24 @@ function commitEmotion() {
   if (!val) showEmotionInput.value = false
 }
 
+// ==================== 自定义备选方案 ====================
+function confirmAddAlternative() {
+  const content = newAltContent.value.trim()
+  if (!content) return
+  emit('add-alt', content, {
+    name: newAltName.value.trim() || undefined,
+    emotion: newAltEmotion.value.trim() || undefined,
+  })
+  resetAltForm()
+}
+
+function resetAltForm() {
+  newAltName.value = ''
+  newAltContent.value = ''
+  newAltEmotion.value = ''
+  showAddAltForm.value = false
+}
+
 // ==================== 内容编辑 ====================
 function handleBlur(e: FocusEvent) {
   const target = e.target as HTMLElement
@@ -316,6 +409,15 @@ watch(
     }
   }
 )
+
+// 打开添加方案表单时自动聚焦
+watch(showAddAltForm, (val) => {
+  if (val) {
+    nextTick(() => {
+      altContentInputRef.value?.focus()
+    })
+  }
+})
 
 // 点击外部关闭类型菜单
 if (typeof document !== 'undefined') {

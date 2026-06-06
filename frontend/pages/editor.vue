@@ -1,5 +1,18 @@
 <template>
   <div class="h-screen flex flex-col bg-[var(--bg-dark)] overflow-hidden">
+    <!-- 快捷键保存反馈浮动提示 -->
+    <Transition name="feedback-fade">
+      <div
+        v-if="saveFeedbackVisible"
+        class="fixed top-4 left-1/2 -translate-x-1/2 z-[200] flex items-center gap-2 px-4 py-2 rounded-lg bg-emerald-500/90 text-white text-sm font-medium shadow-lg shadow-emerald-500/30 backdrop-blur-sm pointer-events-none"
+      >
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
+        </svg>
+        {{ saveFeedbackMessage }}
+      </div>
+    </Transition>
+
     <!-- 顶部工具栏 -->
     <header class="flex-shrink-0 border-b border-slate-700/50 bg-slate-900/80 backdrop-blur-sm px-4 py-2">
       <div class="flex items-center justify-between">
@@ -26,12 +39,13 @@
             :class="currentProjectId
               ? 'bg-emerald-600/80 hover:bg-emerald-500 text-white'
               : 'bg-slate-700/60 hover:bg-slate-600/60 text-slate-200'"
-            :title="currentProjectId ? '保存到当前项目' : '保存并创建新项目'"
+            :title="currentProjectId ? '保存到当前项目 (Ctrl+S)' : '保存并创建新项目 (Ctrl+S)'"
           >
             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4" />
             </svg>
             {{ isSaving ? '保存中...' : '保存' }}
+            <span class="text-[10px] font-mono opacity-50 ml-0.5">⌘S</span>
           </button>
 
           <!-- 保存为（另存为新项目副本） -->
@@ -45,6 +59,20 @@
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
             </svg>
             保存为
+          </button>
+
+          <!-- 项目信息（手动编辑元数据） -->
+          <button
+            v-if="currentProjectId"
+            @click="showExistingProjectSaveDialog()"
+            :disabled="isSaving || isUpdatingProject"
+            class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors disabled:opacity-50 bg-slate-700/50 hover:bg-slate-600/50 text-slate-300 border border-slate-600/40 hover:border-slate-500/40"
+            title="编辑项目名称、负责人、描述等元数据"
+          >
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+            </svg>
+            项目信息
           </button>
 
           <label class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-700/60 hover:bg-slate-600/60 text-slate-200 text-sm cursor-pointer transition-colors">
@@ -270,6 +298,8 @@
                 @update-speaker="(speaker) => handleUpdateSpeaker(scene.id, idx, speaker)"
                 @update-emotion="(emotion) => handleUpdateEmotion(scene.id, idx, emotion)"
                 @select-alt="(altIdx) => handleSelectAlt(scene.id, idx, altIdx)"
+                @remove-alt="(altIdx) => scriptStore.removeAlternative(scene.id, idx, altIdx)"
+                @add-alt="(content, opts) => scriptStore.addCustomAlternative(scene.id, idx, content, opts)"
                 @delete="handleDeleteBeat(scene.id, idx)"
                 @ai-regenerate="() => handleAIRegenerateBeat(scene.id, idx)"
                 @move-up="() => scriptStore.moveBeat(scene.id, idx, 'up')"
@@ -473,9 +503,10 @@
     <!-- 设置弹窗 -->
     <Teleport to="body">
       <div v-if="showSettings" class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm" @click.self="showSettings = false">
-        <div class="bg-slate-800 rounded-xl border border-slate-700/50 w-full max-w-md p-6 shadow-xl">
+        <div class="bg-slate-800 rounded-xl border border-slate-700/50 w-full max-w-lg p-6 shadow-xl max-h-[85vh] overflow-y-auto">
           <h3 class="text-lg font-semibold text-white mb-4">设置</h3>
-          <div class="space-y-4">
+          <div class="space-y-5">
+            <!-- API 设置 -->
             <div>
               <label class="block text-sm text-slate-300 mb-1.5">DeepSeek API Key</label>
               <input
@@ -492,6 +523,87 @@
                 placeholder="https://api.deepseek.com/v1"
                 class="w-full bg-slate-900/50 border border-slate-600 rounded-lg px-3 py-2 text-sm text-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500/50"
               />
+            </div>
+
+            <!-- 分割线 -->
+            <div class="border-t border-slate-700/50"></div>
+
+            <!-- 快捷键设置 -->
+            <div>
+              <div class="flex items-center justify-between mb-3">
+                <label class="block text-sm font-medium text-slate-200">键盘快捷键</label>
+                <span class="text-[11px] text-slate-500">自定义或禁用快捷键</span>
+              </div>
+
+              <div class="space-y-2.5">
+                <div
+                  v-for="sc in getRegisteredShortcuts()"
+                  :key="sc.id"
+                  class="flex items-center gap-3 px-3 py-2.5 rounded-lg bg-slate-900/50 border border-slate-700/40 group"
+                >
+                  <!-- 快捷键名称 -->
+                  <div class="flex-1 min-w-0">
+                    <div class="text-sm text-slate-200">{{ sc.name }}</div>
+                    <div v-if="shortcutEditId !== sc.id" class="text-xs font-mono mt-0.5" :class="sc.userBinding ? 'text-indigo-400' : 'text-slate-500'">
+                      {{ sc.userBinding ? keyLabel(sc.userBinding) + ' (自定义)' : keyLabel(sc.defaultBinding) }}
+                    </div>
+                  </div>
+
+                  <!-- 编辑模式：输入框 -->
+                  <template v-if="shortcutEditId === sc.id">
+                    <div class="flex-1 max-w-[180px]">
+                      <input
+                        ref="shortcutInputRef"
+                        v-model="shortcutEditValue"
+                        type="text"
+                        placeholder="如 ctrl+s, ctrl+shift+s"
+                        class="w-full bg-slate-950 border border-indigo-500/50 rounded px-2 py-1 text-xs font-mono text-slate-200 focus:outline-none focus:ring-1 focus:ring-indigo-500/50"
+                        @keydown.enter="confirmShortcutEdit(sc.id)"
+                        @keydown.escape="cancelShortcutEdit"
+                        @blur="confirmShortcutEdit(sc.id)"
+                      />
+                      <p v-if="shortcutConflictWarning" class="mt-1 text-[11px] text-amber-400">{{ shortcutConflictWarning }}</p>
+                    </div>
+                    <button @click="confirmShortcutEdit(sc.id)" class="px-2 py-1 text-xs bg-emerald-600/80 hover:bg-emerald-500 text-white rounded transition-colors">
+                      确定
+                    </button>
+                    <button @click="cancelShortcutEdit" class="px-2 py-1 text-xs bg-slate-700 hover:bg-slate-600 text-slate-300 rounded transition-colors">
+                      取消
+                    </button>
+                  </template>
+
+                  <!-- 非编辑模式：操作按钮 -->
+                  <template v-else>
+                    <button
+                      @click="startShortcutEdit(sc)"
+                      class="px-2 py-1 text-xs bg-slate-700/60 hover:bg-slate-600 text-slate-300 rounded transition-colors opacity-0 group-hover:opacity-100"
+                      title="修改快捷键"
+                    >
+                      修改
+                    </button>
+                    <button
+                      v-if="sc.userBinding"
+                      @click="resetUserBinding(sc.id); shortcutEditId = ''"
+                      class="px-2 py-1 text-xs text-amber-400/70 hover:text-amber-300 transition-colors opacity-0 group-hover:opacity-100"
+                      title="恢复默认"
+                    >
+                      重置
+                    </button>
+                    <button
+                      @click="setUserBinding(sc.id, null); shortcutEditId = ''"
+                      class="px-2 py-1 text-xs text-red-400/60 hover:text-red-300 transition-colors opacity-0 group-hover:opacity-100"
+                      title="禁用此快捷键"
+                    >
+                      禁用
+                    </button>
+                  </template>
+                </div>
+
+                <!-- 无快捷键提示 -->
+                <div v-if="getRegisteredShortcuts().length === 0" class="text-center py-3 text-xs text-slate-600">
+                  暂无已注册的快捷键
+                </div>
+              </div>
             </div>
           </div>
           <div class="mt-6 flex justify-end gap-2">
@@ -738,6 +850,7 @@ import { useDeepSeekKey } from '~/composables/useDeepSeekKey'
 import { useDialog } from '~/composables/useDialog'
 import { useEditorLayout } from '~/composables/useEditorLayout'
 import { useAutoBackup } from '~/composables/useAutoBackup'
+import { useKeyboardShortcuts, bindingToString } from '~/composables/useKeyboardShortcuts'
 
 import CausalGraph from '~/components/CausalGraph.vue'
 import RelationNetwork from '~/components/RelationNetwork.vue'
@@ -765,6 +878,16 @@ const {
   timeAgo: backupTimeAgo,
   formatSize: backupFormatSize,
 } = useAutoBackup()
+const {
+  registerShortcut,
+  unregisterShortcut,
+  getRegisteredShortcuts,
+  setUserBinding,
+  resetUserBinding,
+  detectConflicts,
+  bindingToString: keyLabel,
+  parseBindingString,
+} = useKeyboardShortcuts()
 
 // ==================== UI 状态 ====================
 type LoadStatus = 'loading' | 'loaded' | 'empty' | 'error'
@@ -801,6 +924,26 @@ const saveAsName = ref('')
 const saveAsError = ref('')
 const isCreatingSaveAs = ref(false)
 const saveAsInputRef = ref<HTMLInputElement | null>(null)
+
+// 快捷键保存反馈提示
+const saveFeedbackVisible = ref(false)
+const saveFeedbackMessage = ref('')
+let saveFeedbackTimer: ReturnType<typeof setTimeout> | null = null
+
+function showSaveFeedback(message: string) {
+  saveFeedbackMessage.value = message
+  saveFeedbackVisible.value = true
+  if (saveFeedbackTimer) clearTimeout(saveFeedbackTimer)
+  saveFeedbackTimer = setTimeout(() => {
+    saveFeedbackVisible.value = false
+  }, 2000)
+}
+
+// 快捷键设置面板状态
+const showShortcutSettings = ref(false)
+const shortcutEditId = ref('')
+const shortcutEditValue = ref('')
+const shortcutConflictWarning = ref('')
 
 // ==================== 计算属性 ====================
 const scriptData = computed(() => scriptStore.scriptData)
@@ -942,6 +1085,16 @@ function retryLoad() {
 // 初始化
 onMounted(() => {
   loadData()
+
+  // 注册 Ctrl+S 快捷键 → 触发保存（防抖 1s，允许在输入框中触发）
+  registerShortcut('save', '保存文档', { key: 's', ctrl: true }, async () => {
+    if (isSaving.value) return // 正在保存时跳过
+    await handleSave()
+    showSaveFeedback('已保存')
+  }, {
+    debounceMs: 1000,
+    allowInInput: true,  // 在 textarea / input 中也能触发保存
+  })
 })
 
 // ==================== 保存 ====================
@@ -1032,8 +1185,7 @@ async function handleSave() {
         } catch { /* 快照失败不阻断 */ }
       }
 
-      // 4) 弹出元数据编辑弹窗（可选编辑 title/owner/description）
-      await showExistingProjectSaveDialog()
+      // 4) 保存完成（不再自动弹出项目信息弹窗）
       return
     }
 
@@ -1539,4 +1691,77 @@ function onDragEnd() {
   document.removeEventListener('mousemove', onDragMove)
   document.removeEventListener('mouseup', onDragEnd)
 }
+
+// ==================== 快捷键设置编辑 ====================
+
+const shortcutInputRef = ref<HTMLInputElement | null>(null)
+
+/** 开始编辑某个快捷键 */
+function startShortcutEdit(sc: { id: string; defaultBinding: any; userBinding: any }) {
+  shortcutEditId.value = sc.id
+  // 预填充当前绑定值
+  const current = sc.userBinding || sc.defaultBinding
+  shortcutEditValue.value = keyLabel(current).toLowerCase()
+  shortcutConflictWarning.value = ''
+  nextTick(() => {
+    shortcutInputRef.value?.focus()
+    shortcutInputRef.value?.select()
+  })
+}
+
+/** 确认快捷键修改（含冲突检测） */
+function confirmShortcutEdit(id: string) {
+  const raw = shortcutEditValue.value.trim()
+  if (!raw) {
+    cancelShortcutEdit()
+    return
+  }
+
+  const parsed = parseBindingString(raw)
+  if (!parsed) {
+    shortcutConflictWarning.value = '无法解析的快捷键格式，示例: ctrl+s'
+    return
+  }
+
+  // 冲突检测
+  const conflicts = detectConflicts(parsed, id)
+  if (conflicts.length > 0) {
+    const names = getRegisteredShortcuts()
+      .filter(s => conflicts.includes(s.id))
+      .map(s => s.name)
+      .join('、')
+    shortcutConflictWarning.value = `与「${names}」快捷键冲突，请更换`
+    return
+  }
+
+  // 应用修改
+  setUserBinding(id, parsed)
+  shortcutEditId.value = ''
+  shortcutConflictWarning.value = ''
+}
+
+/** 取消编辑 */
+function cancelShortcutEdit() {
+  shortcutEditId.value = ''
+  shortcutEditValue.value = ''
+  shortcutConflictWarning.value = ''
+}
 </script>
+
+<style scoped>
+/* 快捷键保存反馈过渡动画 */
+.feedback-fade-enter-active {
+  transition: all 0.25s ease-out;
+}
+.feedback-fade-leave-active {
+  transition: all 0.4s ease-in;
+}
+.feedback-fade-enter-from {
+  opacity: 0;
+  transform: translate(-50%, -12px);
+}
+.feedback-fade-leave-to {
+  opacity: 0;
+  transform: translate(-50%, -8px);
+}
+</style>
