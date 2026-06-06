@@ -294,6 +294,8 @@ pub struct UpdateProjectRequest {
     pub description: Option<String>,
     pub status: Option<String>,
     pub style: Option<String>,
+    #[serde(default)]
+    pub script_id: Option<String>,
 }
 
 #[derive(Debug, Serialize)]

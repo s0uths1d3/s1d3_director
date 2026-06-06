@@ -93,6 +93,8 @@ async fn main() {
                 .route("/api/projects/:id", delete(handlers::delete_project))
                 // 剧本数据
                 .route("/api/scripts/:id", get(handlers::get_script))
+                .route("/api/scripts/:id", put(handlers::update_script))
+                .route("/api/scripts", post(handlers::create_script))
                 // CORS 中间件
                 .layer(axum::middleware::from_fn(handlers::cors_middleware))
                 // 注入共享状态
@@ -132,6 +134,8 @@ async fn main() {
                 .route("/api/projects/:id", delete(handlers::delete_project))
                 // 剧本数据
                 .route("/api/scripts/:id", get(handlers::get_script))
+                .route("/api/scripts/:id", put(handlers::update_script))
+                .route("/api/scripts", post(handlers::create_script))
                 .layer(axum::middleware::from_fn(handlers::cors_middleware))
                 .with_state(state);
 

@@ -284,16 +284,75 @@
           </div>
         </div>
       </div>
+
+      <!-- 保存成功弹窗：填写工程名称 -->
+      <div v-if="showSaveDialog" class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm" @click.self="closeSaveDialog">
+        <div class="bg-slate-800 rounded-xl border border-slate-700/50 w-full max-w-md p-6 shadow-xl">
+          <div class="flex items-center gap-3 mb-4">
+            <div class="w-10 h-10 rounded-full bg-emerald-500/20 flex items-center justify-center">
+              <svg class="w-5 h-5 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
+              </svg>
+            </div>
+            <div>
+              <h3 class="text-lg font-semibold text-white">保存成功</h3>
+              <p class="text-xs text-slate-400">剧本内容已保存到服务器</p>
+            </div>
+          </div>
+
+          <div class="space-y-4">
+            <div>
+              <label class="block text-sm text-slate-300 mb-1.5">工程名称 <span class="text-red-400">*</span></label>
+              <input
+                ref="projectNameInput"
+                v-model="newProjectName"
+                type="text"
+                placeholder="请输入工程名称，如「校园青春短剧」"
+                maxlength="100"
+                class="w-full bg-slate-900/50 border border-slate-600 rounded-lg px-3 py-2.5 text-sm text-slate-200 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/50 focus:border-emerald-500/50 transition-colors"
+                @keyup.enter="confirmProjectName"
+              />
+              <p class="mt-1.5 text-xs text-slate-500">为这个剧本创建一个项目，方便在首页管理和继续编辑</p>
+            </div>
+
+            <div v-if="saveError" class="px-3 py-2 rounded-lg bg-red-500/10 border border-red-500/20 text-sm text-red-300">
+              {{ saveError }}
+            </div>
+          </div>
+
+          <div class="mt-6 flex justify-end gap-2">
+            <button
+              @click="skipNaming"
+              class="px-4 py-2 text-sm text-slate-400 hover:text-white transition-colors"
+            >
+              跳过
+            </button>
+            <button
+              @click="confirmProjectName"
+              :disabled="!newProjectName.trim() || isCreatingProject"
+              class="px-4 py-2 text-sm bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white rounded-lg transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1.5"
+            >
+              <svg v-if="isCreatingProject" class="animate-spin w-3.5 h-3.5" fill="none" viewBox="0 0 24 24">
+                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+              </svg>
+              {{ isCreatingProject ? '创建中...' : '确认创建' }}
+            </button>
+          </div>
+        </div>
+      </div>
     </Teleport>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, computed, provide, onMounted } from 'vue'
+import { ref, computed, provide, onMounted, nextTick } from 'vue'
+import { useRoute } from 'vue-router'
 import yaml from 'js-yaml'
 import { useScriptStore } from '~/stores/scriptStore'
 import { useCopilotStore } from '~/stores/copilotStore'
 import { useGraphStore } from '~/stores/graphStore'
+import { useProjectStore } from '~/stores/projectStore'
 import { useDeepSeekKey } from '~/composables/useDeepSeekKey'
 
 import CausalGraph from '~/components/CausalGraph.vue'
@@ -303,9 +362,11 @@ import Player from '~/components/Player.vue'
 import CopilotChat from '~/components/CopilotChat.vue'
 import BeatCard from '~/components/BeatCard.vue'
 
+const route = useRoute()
 const scriptStore = useScriptStore()
 const copilotStore = useCopilotStore()
 const graphStore = useGraphStore()
+const projectStore = useProjectStore()
 const deepSeek = useDeepSeekKey()
 
 // ==================== UI 状态 ====================
@@ -318,6 +379,15 @@ const isSaving = ref(false)
 const yamlSource = ref('')
 const loadStatus = ref<LoadStatus>('loading')
 const loadError = ref('')
+
+// 保存相关状态
+const currentScriptId = ref<string>('')
+const currentProjectId = ref<string>('')
+const showSaveDialog = ref(false)
+const newProjectName = ref('')
+const saveError = ref('')
+const isCreatingProject = ref(false)
+const projectNameInput = ref<HTMLInputElement | null>(null)
 
 // ==================== 计算属性 ====================
 const scriptData = computed(() => scriptStore.scriptData)
@@ -415,6 +485,10 @@ async function loadData() {
   loadStatus.value = 'loading'
   loadError.value = ''
 
+  // 从 URL 参数读取 script_id 和 project_id
+  currentScriptId.value = (route.query.script_id as string) || ''
+  currentProjectId.value = (route.query.project_id as string) || ''
+
   // 使用 requestAnimationFrame 让 loading 状态先渲染，避免闪烁
   await new Promise(resolve => requestAnimationFrame(resolve))
 
@@ -439,19 +513,163 @@ onMounted(() => {
 })
 
 // ==================== 保存 ====================
+
+/** 将当前编辑器内容序列化为 YAML 字符串 */
+function serializeToYaml(): string | null {
+  const data = scriptStore.scriptData
+  if (!data) return null
+  return yaml.dump(data, { lineWidth: -1, quotingType: '"', forceQuotes: true })
+}
+
+/** 保存剧本到后端，返回 script_id */
+async function saveScriptToBackend(yamlContent: string): Promise<string> {
+  // 如果已有 script_id，直接更新
+  if (currentScriptId.value) {
+    const res = await fetch(`/api/scripts/${currentScriptId.value}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/yaml; charset=utf-8' },
+      body: yamlContent,
+    })
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: `HTTP ${res.status}` }))
+      throw new Error(err.error || err.message || `保存失败 (HTTP ${res.status})`)
+    }
+    return currentScriptId.value
+  }
+
+  // 无 script_id：需要先创建新剧本记录（通过 generate-script 的保存逻辑或单独创建）
+  // 这里通过 POST 一个最小化的创建请求来获取新 ID
+  const createRes = await fetch('/api/scripts', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      title: scriptData.value?.metadata?.title || '未命名剧本',
+      style: scriptData.value?.metadata?.style || 'short_drama',
+      yaml_content: yamlContent,
+    }),
+  })
+
+  if (!createRes.ok) {
+    // 如果 POST /api/scripts 不存在，尝试用 PUT 创建（后端可能不支持 POST scripts）
+    // 回退方案：提示用户需要先在首页生成
+    throw new Error('当前剧本尚未关联到服务器记录，请先在首页生成剧本后再编辑保存')
+  }
+
+  const result = await createRes.json()
+  const newId = result.id || result.script_id
+  if (!newId) throw new Error('服务器未返回剧本 ID')
+  currentScriptId.value = newId
+  return newId
+}
+
 async function handleSave() {
   isSaving.value = true
   try {
-    // 同步 YAML 源码
-    const data = scriptStore.scriptData
-    if (data) {
-      yamlSource.value = yaml.dump(data, { lineWidth: -1, quotingType: '"', forceQuotes: true })
-      sessionStorage.setItem('script_yaml', yamlSource.value)
+    const yamlContent = serializeToYaml()
+    if (!yamlContent) {
+      alert('没有可保存的剧本数据')
+      return
     }
-  } catch (e) {
+
+    // 同步本地 YAML 源码视图
+    yamlSource.value = yamlContent
+    sessionStorage.setItem('script_yaml', yamlContent)
+
+    // 调用后端 API 保存
+    const savedScriptId = await saveScriptToBackend(yamlContent)
+
+    console.log(`[保存] 剧本已保存到服务器, script_id=${savedScriptId}`)
+
+    // 如果还没有关联的项目，弹出工程命名对话框
+    if (!currentProjectId.value) {
+      newProjectName.value = scriptData.value?.metadata?.title || ''
+      showSaveDialog.value = true
+      saveError.value = ''
+      await nextTick()
+      projectNameInput.value?.focus()
+    } else {
+      // 已有项目，静默保存成功
+      alert('保存成功！')
+    }
+  } catch (e: any) {
     console.error('保存失败:', e)
+    alert(e.message || '保存失败，请检查网络连接')
   } finally {
     isSaving.value = false
+  }
+}
+
+// ==================== 工程命名弹窗 ====================
+
+async function confirmProjectName() {
+  const name = newProjectName.value.trim()
+  if (!name) return
+
+  isCreatingProject.value = true
+  saveError.value = ''
+
+  try {
+    const style = scriptData.value?.metadata?.style || 'short_drama'
+    const res = await fetch('/api/projects', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        title: name,
+        description: `${scriptData.value?.metadata?.title || ''} - ${scriptStore.scenes.length} 场景`,
+        style,
+      }),
+    })
+
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: `HTTP ${res.status}` }))
+      throw new Error(err.error || err.detail || '创建项目失败')
+    }
+
+    const project = await res.json()
+    currentProjectId.value = project.id
+
+    // 关联剧本到项目（更新项目的 script_id）
+    if (currentScriptId.value && project.id) {
+      await fetch(`/api/projects/${project.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ script_id: currentScriptId.value }),
+      }).catch(() => {}) // 非关键操作，失败不阻断
+    }
+
+    // 更新本地 project store
+    projectStore.addProjectToLocal({
+      id: project.id,
+      title: name,
+      description: '',
+      style,
+      status: 'draft',
+      owner: 'anonymous',
+      novel_preview: null,
+      script_id: currentScriptId.value,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    })
+
+    showSaveDialog.value = false
+    newProjectName.value = ''
+    alert(`工程「${name}」创建成功！可在首页查看和管理。`)
+  } catch (e: any) {
+    saveError.value = e.message || '创建失败，请重试'
+  } finally {
+    isCreatingProject.value = false
+  }
+}
+
+function skipNaming() {
+  showSaveDialog.value = false
+  newProjectName.value = ''
+  saveError.value = ''
+}
+
+function closeSaveDialog() {
+  if (!isCreatingProject.value) {
+    skipNaming()
   }
 }
 

@@ -477,6 +477,91 @@ pub async fn get_script(
     }
 }
 
+/// 更新剧本 YAML 内容
+pub async fn update_script(
+    State(state): State<AppState>,
+    axum::extract::Path(id): axum::extract::Path<String>,
+    body: String,
+) -> Response {
+    let db = match &state.db {
+        Some(pool) => pool,
+        None => return error_response(StatusCode::SERVICE_UNAVAILABLE, "数据库不可用"),
+    };
+
+    let uuid_id = match sqlx::types::Uuid::parse_str(&id) {
+        Ok(u) => u,
+        Err(_) => return error_response(StatusCode::BAD_REQUEST, "无效的剧本ID格式"),
+    };
+
+    let result = sqlx::query("UPDATE scripts SET yaml_content = $2, updated_at = NOW() WHERE id = $1")
+        .bind(uuid_id)
+        .bind(&body)
+        .execute(db)
+        .await;
+
+    match result {
+        Ok(res) if res.rows_affected() > 0 => {
+            tracing::info!(script_id = %id, yaml_len = body.len(), "剧本已更新");
+            Json(serde_json::json!({
+                "success": true,
+                "message": "保存成功",
+                "script_id": id
+            })).into_response()
+        }
+        Ok(_) => error_response(StatusCode::NOT_FOUND, "剧本不存在"),
+        Err(e) => {
+            tracing::error!(error = %e, script_id = %id, "更新剧本失败");
+            error_response(StatusCode::INTERNAL_SERVER_ERROR, &format!("保存失败: {}", e))
+        }
+    }
+}
+
+/// 创建新剧本记录（用于编辑器首次保存）
+pub async fn create_script(
+    State(state): State<AppState>,
+    Json(body): Json<serde_json::Value>,
+) -> Response {
+    let db = match &state.db {
+        Some(pool) => pool,
+        None => return error_response(StatusCode::SERVICE_UNAVAILABLE, "数据库不可用"),
+    };
+
+    let title = body.get("title")
+        .and_then(|v| v.as_str())
+        .unwrap_or("未命名剧本")
+        .to_string();
+    let style = body.get("style")
+        .and_then(|v| v.as_str())
+        .unwrap_or("short_drama")
+        .to_string();
+    let yaml_content = body.get("yaml_content")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+
+    let row: Option<(sqlx::types::Uuid,)> = sqlx::query_as(
+        "INSERT INTO scripts (title, style, yaml_content) VALUES ($1, $2, $3) RETURNING id"
+    )
+    .bind(&title)
+    .bind(&style)
+    .bind(&yaml_content)
+    .fetch_optional(db)
+    .await
+    .unwrap_or(None);
+
+    match row {
+        Some((id,)) => {
+            tracing::info!(script_id = %id, title = %title, yaml_len = yaml_content.len(), "新剧本已创建");
+            Json(serde_json::json!({
+                "id": id.to_string(),
+                "title": title,
+                "message": "创建成功"
+            })).into_response()
+        }
+        None => error_response(StatusCode::INTERNAL_SERVER_ERROR, "创建剧本失败"),
+    }
+}
+
 // ==================== 项目管理 API ====================
 
 /// 获取项目列表（支持分页、搜索、筛选）
@@ -597,10 +682,13 @@ pub async fn update_project(
 
     // 动态构建 UPDATE 语句
     let mut sets = Vec::new();
-    if body.title.is_some() { sets.push("title = $2".to_string()); }
-    if body.description.is_some() { sets.push("description = $3".to_string()); }
-    if body.status.is_some() { sets.push("status = $4".to_string()); }
-    if body.style.is_some() { sets.push("style = $5".to_string()); }
+    let mut bind_idx = 2;
+    if body.title.is_some() { sets.push(format!("title = ${}", bind_idx)); bind_idx += 1; }
+    if body.description.is_some() { sets.push(format!("description = ${}", bind_idx)); bind_idx += 1; }
+    if body.status.is_some() { sets.push(format!("status = ${}", bind_idx)); bind_idx += 1; }
+    if body.style.is_some() { sets.push(format!("style = ${}", bind_idx)); bind_idx += 1; }
+    // script_id 需要转为 UUID 或 NULL
+    if body.script_id.is_some() { sets.push(format!("script_id = ${}::uuid", bind_idx)); bind_idx += 1; }
 
     if sets.is_empty() {
         return get_project_by_id(db, &id).await;
@@ -609,14 +697,23 @@ pub async fn update_project(
     sets.push("updated_at = NOW()".to_string());
     let set_clause = sets.join(", ");
 
-    let result = sqlx::query(&format!("UPDATE projects SET {} WHERE id = $1", set_clause))
-        .bind(uuid_id)
-        .bind(&body.title)
-        .bind(&body.description)
-        .bind(&body.status)
-        .bind(&body.style)
-        .execute(db)
-        .await;
+    // 构建动态查询
+    let query_str = format!("UPDATE projects SET {} WHERE id = $1", set_clause);
+    let mut query = sqlx::query(&query_str).bind(uuid_id);
+
+    if let Some(ref v) = body.title { query = query.bind(v); }
+    if let Some(ref v) = body.description { query = query.bind(v); }
+    if let Some(ref v) = body.status { query = query.bind(v); }
+    if let Some(ref v) = body.style { query = query.bind(v); }
+    if let Some(ref v) = body.script_id {
+        if v.is_empty() {
+            query = query.bind::<Option<String>>(None);
+        } else {
+            query = query.bind(v.as_str());
+        }
+    }
+
+    let result = query.execute(db).await;
 
     match result {
         Ok(res) if res.rows_affected() > 0 => {
