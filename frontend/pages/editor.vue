@@ -354,6 +354,7 @@ import { useCopilotStore } from '~/stores/copilotStore'
 import { useGraphStore } from '~/stores/graphStore'
 import { useProjectStore } from '~/stores/projectStore'
 import { useDeepSeekKey } from '~/composables/useDeepSeekKey'
+import { useDialog } from '~/composables/useDialog'
 
 import CausalGraph from '~/components/CausalGraph.vue'
 import RelationNetwork from '~/components/RelationNetwork.vue'
@@ -368,6 +369,7 @@ const copilotStore = useCopilotStore()
 const graphStore = useGraphStore()
 const projectStore = useProjectStore()
 const deepSeek = useDeepSeekKey()
+const dialog = useDialog()
 
 // ==================== UI 状态 ====================
 type LoadStatus = 'loading' | 'loaded' | 'empty' | 'error'
@@ -567,7 +569,7 @@ async function handleSave() {
   try {
     const yamlContent = serializeToYaml()
     if (!yamlContent) {
-      alert('没有可保存的剧本数据')
+      await dialog.alert('没有可保存的剧本数据', { variant: 'warning' })
       return
     }
 
@@ -589,11 +591,11 @@ async function handleSave() {
       projectNameInput.value?.focus()
     } else {
       // 已有项目，静默保存成功
-      alert('保存成功！')
+      await dialog.alert('保存成功！', { variant: 'success' })
     }
   } catch (e: any) {
     console.error('保存失败:', e)
-    alert(e.message || '保存失败，请检查网络连接')
+    await dialog.alert(e.message || '保存失败，请检查网络连接', { variant: 'danger' })
   } finally {
     isSaving.value = false
   }
@@ -653,7 +655,7 @@ async function confirmProjectName() {
 
     showSaveDialog.value = false
     newProjectName.value = ''
-    alert(`工程「${name}」创建成功！可在首页查看和管理。`)
+    await dialog.alert(`工程「${name}」创建成功！可在首页查看和管理。`, { variant: 'success' })
   } catch (e: any) {
     saveError.value = e.message || '创建失败，请重试'
   } finally {
@@ -674,13 +676,13 @@ function closeSaveDialog() {
 }
 
 // 导入
-function handleImport(event: Event) {
+async function handleImport(event: Event) {
   const target = event.target as HTMLInputElement
   const file = target.files?.[0]
   if (!file) return
 
   const reader = new FileReader()
-  reader.onload = (e) => {
+  reader.onload = async (e) => {
     const text = e.target?.result as string || ''
     if (!text.trim()) return
 
@@ -691,7 +693,7 @@ function handleImport(event: Event) {
       loadStatus.value = 'loaded'
       emitScriptUpdate()
     } else {
-      alert(loadError.value || '文件格式错误，无法解析为有效的 YAML 剧本数据')
+      await dialog.alert(loadError.value || '文件格式错误，无法解析为有效的 YAML 剧本数据', { variant: 'danger' })
       if (!loadError.value) loadStatus.value = 'error'
     }
   }
@@ -717,8 +719,8 @@ function handleSelectAlt(sceneId: number, beatIndex: number, altIndex: number) {
   emitScriptUpdate()
 }
 
-function handleDeleteBeat(sceneId: number, beatIndex: number) {
-  if (confirm('确定删除该节拍？')) {
+async function handleDeleteBeat(sceneId: number, beatIndex: number) {
+  if (await dialog.confirm('确定删除该节拍？', { variant: 'danger' })) {
     scriptStore.removeBeat(sceneId, beatIndex)
     emitScriptUpdate()
   }

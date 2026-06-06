@@ -149,8 +149,10 @@
 <script setup lang="ts">
 import { ref, computed, nextTick, onMounted } from 'vue'
 import { useCopilotStore } from '~/stores/copilotStore'
+import { useDialog } from '~/composables/useDialog'
 
 const copilotStore = useCopilotStore()
+const dialog = useDialog()
 
 const inputText = ref('')
 const messageListRef = ref<HTMLElement>()
@@ -306,8 +308,8 @@ function getScriptContext(): any {
 }
 
 // 清空对话
-function clearChat() {
-  if (confirm('确定清空所有对话记录？')) {
+async function clearChat() {
+  if (await dialog.confirm('确定清空所有对话记录？', { variant: 'warning' })) {
     copilotStore.clearMessages()
   }
 }

@@ -50,6 +50,7 @@
 <script setup lang="ts">
 import { computed, ref, inject, watch, onMounted, onUnmounted, nextTick } from 'vue'
 import { useGraphStore } from '~/stores/graphStore'
+import { useDialog } from '~/composables/useDialog'
 import VChart from 'vue-echarts'
 import { use } from 'echarts/core'
 import { GraphChart } from 'echarts/charts'
@@ -63,6 +64,7 @@ import { CanvasRenderer } from 'echarts/renderers'
 use([GraphChart, TooltipComponent, LegendComponent, MarkLineComponent, CanvasRenderer])
 
 const graphStore = useGraphStore()
+const dialog = useDialog()
 const chartRef = ref<InstanceType<typeof VChart>>()
 
 // 右键菜单状态
@@ -262,7 +264,7 @@ function hideContextMenu() {
   contextMenu.value.visible = false
 }
 
-function simulateRemove() {
+async function simulateRemove() {
   const nodeId = contextMenu.value.nodeId
   if (!nodeId) return
   hideContextMenu()
@@ -271,7 +273,7 @@ function simulateRemove() {
   const downstream = findDownstream(nodeId)
   const affectedList = [nodeId, ...downstream]
 
-  alert(`模拟删除事件 "${nodeId}"\n将影响以下下游事件:\n${affectedList.join(', ')}`)
+  await dialog.alert(`模拟删除事件 "${nodeId}"\n将影响以下下游事件:\n${affectedList.join(', ')}`, { title: '删除事件影响分析' })
 }
 
 // 点击空白处关闭右键菜单

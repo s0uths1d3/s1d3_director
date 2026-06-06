@@ -388,9 +388,11 @@ import { ref, reactive, computed, onMounted } from 'vue'
 import { storeToRefs } from 'pinia'
 import { useRouter } from 'vue-router'
 import { useProjectStore } from '../stores/projectStore'
+import { useDialog } from '../composables/useDialog'
 
 const router = useRouter()
 const projectStore = useProjectStore()
+const dialog = useDialog()
 
 // ==================== 项目管理状态（使用全局 Store） ====================
 const { projectList, loading: loadingProjects } = storeToRefs(projectStore)
@@ -471,7 +473,7 @@ async function createProject() {
     // 乐观更新：直接追加到列表，无需重新请求
     projectStore.addProjectToLocal(created)
   } catch (e: any) {
-    alert('创建失败: ' + e.message)
+    await dialog.alert('创建失败: ' + e.message, { variant: 'danger' })
   } finally {
     creatingProject.value = false
   }
@@ -494,7 +496,7 @@ async function doDelete() {
     // 乐观更新：直接从列表移除
     projectStore.removeProjectLocal(deletedId)
   } catch (e: any) {
-    alert('删除失败: ' + e.message)
+    await dialog.alert('删除失败: ' + e.message, { variant: 'danger' })
   } finally {
     deleting.value = false
   }
@@ -516,7 +518,7 @@ async function openProject(proj: any) {
     }
     router.push('/editor')
   } else {
-    alert('该项目暂无关联剧本，请在下方生成剧本')
+    await dialog.alert('该项目暂无关联剧本，请在下方生成剧本', { variant: 'warning' })
   }
 }
 
@@ -741,7 +743,7 @@ async function generateScript() {
     router.push('/editor')
   } catch (error: any) {
     console.error('生成剧本失败:', error)
-    alert('生成失败: ' + error.message)
+    await dialog.alert('生成失败: ' + error.message, { variant: 'danger' })
   } finally {
     isGenerating.value = false
   }
