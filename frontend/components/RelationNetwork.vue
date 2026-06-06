@@ -135,28 +135,36 @@ function getEdgeWidth(intimacy?: number): number {
   return Math.max(1, Math.min(6, intimacy * 8))
 }
 
+function truncateText(text: string, maxLen: number): string {
+  return text.length > maxLen ? text.slice(0, maxLen) + '…' : text
+}
+
 // 构建图表配置
 const chartOption = computed(() => {
-  const nodes = graphStore.relationNodes.map((node) => ({
-    id: node.id,
-    name: node.name,
-    symbolSize: 30,
-    itemStyle: {
-      color: graphStore.selectedCharacters.includes(node.name)
-        ? '#a78bfa'
-        : '#475569',
-      borderColor: graphStore.selectedCharacters.includes(node.name)
-        ? '#8b5cf6'
-        : '#64748b',
-      borderWidth: graphStore.selectedCharacters.includes(node.name) ? 2.5 : 1.5,
-    },
-    label: {
-      show: true,
-      fontSize: 11,
-      color: graphStore.selectedCharacters.includes(node.name) ? '#e2e8f0' : '#94a3b8',
-      fontWeight: graphStore.selectedCharacters.includes(node.name) ? 'bold' : 'normal',
-    },
-  }))
+  const nodes = graphStore.relationNodes.map((node) => {
+    const isSelected = graphStore.selectedCharacters.includes(node.name)
+    // 根据选中状态和连接数动态计算大小
+    const edgeCount = graphStore.relationEdges.filter(
+      (e) => e.source === node.id || e.target === node.id
+    ).length
+    return {
+      id: node.id,
+      name: node.name,
+      symbolSize: isSelected ? 32 + edgeCount * 3 : 24 + edgeCount * 2,
+      itemStyle: {
+        color: isSelected ? '#a78bfa' : '#475569',
+        borderColor: isSelected ? '#8b5cf6' : '#64748b',
+        borderWidth: isSelected ? 2.5 : 1.5,
+      },
+      label: {
+        show: true,
+        fontSize: 11,
+        color: isSelected ? '#e2e8f0' : '#94a3b8',
+        fontWeight: isSelected ? 'bold' : 'normal',
+        formatter: truncateText(node.name, 10),
+      },
+    }
+  })
 
   const edges = graphStore.relationEdges.map((edge) => ({
     source: edge.source,
@@ -205,11 +213,14 @@ const chartOption = computed(() => {
         roam: true,
         draggable: true,
         force: {
-          repulsion: 150,
-          gravity: 0.08,
-          edgeLength: [100, 250],
+          repulsion: 300,
+          gravity: 0.03,
+          edgeLength: [130, 280],
           layoutAnimation: true,
+          friction: 0.6,
+          preventOverlap: true,
         },
+        initLayout: 'circular',
         emphasis: {
           focus: 'adjacency',
           lineStyle: {
@@ -217,15 +228,12 @@ const chartOption = computed(() => {
           },
         },
         lineStyle: {},
-        circular: {
-          rotateLabel: false,
-        },
       },
     ],
   }
 })
 
-// 节点点击：选中/取消选中角色
+// 节点点击：选中/取消选中角色（使用 dispatchAction 避免重置布局）
 function handleNodeClick(params: any) {
   if (params.dataType !== 'node') return
 
@@ -237,8 +245,18 @@ function handleNodeClick(params: any) {
     showDetailForPair(graphStore.selectedCharacters[0], graphStore.selectedCharacters[1])
   }
 
+  // 使用 dispatchAction 更新选中状态，不触发 setOption 重置布局
   nextTick(() => {
-    chartRef.value?.setOption(chartOption.value)
+    if (!chartRef.value) return
+    const instance = chartRef.value
+    instance.dispatchAction({ type: 'downplay' })
+    for (const name of graphStore.selectedCharacters) {
+      instance.dispatchAction({
+        type: 'highlight',
+        seriesIndex: 0,
+        name,
+      })
+    }
   })
 }
 
@@ -268,7 +286,7 @@ function showDetailForPair(charA: string, charB: string) {
   detailVisible.value = true
 }
 
-// 更新关系值
+// 更新关系值（保留当前节点位置，避免力导向布局重置）
 function updateRelation(field: 'intimacy' | 'trust', value: number) {
   if (!selectedRelation.value) return
   ;(selectedRelation.value as any)[field] = value
@@ -285,8 +303,24 @@ function updateRelation(field: 'intimacy' | 'trust', value: number) {
     graphStore.relationEdges[edgeIndex].value = value
   }
 
+  // 使用保留位置的更新策略：提取当前坐标 → setOption → 力模拟从当前位置继续
   nextTick(() => {
-    chartRef.value?.setOption(chartOption.value)
+    if (!chartRef.value) return
+    const instance = chartRef.value
+    // 从当前布局中提取所有节点的 x,y 坐标
+    const option = instance.getOption() as any
+    const currentNodes = option?.series?.[0]?.data || []
+    const positionedNodes = chartOption.value.series[0].data.map((node: any, i: number) => ({
+      ...node,
+      // 如果当前布局有坐标则保留，让力模拟从当前位置继续演化
+      ...(currentNodes[i] && currentNodes[i].x != null ? { x: currentNodes[i].x, y: currentNodes[i].y } : {}),
+    }))
+    instance.setOption({
+      series: [{
+        data: positionedNodes,
+        links: chartOption.value.series[0].links,
+      }],
+    })
   })
 }
 

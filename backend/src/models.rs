@@ -295,6 +295,8 @@ pub struct UpdateProjectRequest {
     pub status: Option<String>,
     pub style: Option<String>,
     #[serde(default)]
+    pub owner: Option<String>,
+    #[serde(default)]
     pub script_id: Option<String>,
 }
 

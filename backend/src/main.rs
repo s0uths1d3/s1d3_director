@@ -96,6 +96,9 @@ async fn main() {
                 .route("/api/scripts/:id", get(handlers::get_script))
                 .route("/api/scripts/:id", put(handlers::update_script))
                 .route("/api/scripts", post(handlers::create_script))
+                // 剧本快照（自动备份）
+                .route("/api/scripts/:id/snapshots", post(handlers::create_snapshot))
+                .route("/api/scripts/:id/snapshots", get(handlers::list_snapshots))
                 // CORS 中间件
                 .layer(axum::middleware::from_fn(handlers::cors_middleware))
                 // 注入共享状态
@@ -138,6 +141,9 @@ async fn main() {
                 .route("/api/scripts/:id", get(handlers::get_script))
                 .route("/api/scripts/:id", put(handlers::update_script))
                 .route("/api/scripts", post(handlers::create_script))
+                // 剧本快照（自动备份）
+                .route("/api/scripts/:id/snapshots", post(handlers::create_snapshot))
+                .route("/api/scripts/:id/snapshots", get(handlers::list_snapshots))
                 .layer(axum::middleware::from_fn(handlers::cors_middleware))
                 .with_state(state);
 
@@ -217,6 +223,20 @@ async fn migrate_database(pool: &sqlx::PgPool) {
     sqlx::query("CREATE INDEX IF NOT EXISTS idx_projects_owner ON projects(owner)")
         .execute(pool).await.ok();
     sqlx::query("CREATE INDEX IF NOT EXISTS idx_projects_created ON projects(created_at)")
+        .execute(pool).await.ok();
+
+    // 剧本快照表：自动备份，保存历史版本
+    sqlx::query(r#"
+        CREATE TABLE IF NOT EXISTS script_snapshots (
+            id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+            script_id UUID REFERENCES scripts(id) ON DELETE CASCADE,
+            yaml_content TEXT NOT NULL,
+            label VARCHAR(255) DEFAULT '',
+            created_at TIMESTAMPTZ DEFAULT NOW()
+        )
+    "#).execute(pool).await.expect("创建 script_snapshots 表失败");
+
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_snapshots_script ON script_snapshots(script_id, created_at DESC)")
         .execute(pool).await.ok();
 
     tracing::info!("数据库表结构初始化完成");

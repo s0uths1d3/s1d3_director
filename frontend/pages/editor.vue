@@ -18,15 +18,33 @@
 
         <!-- 中间：操作按钮组 -->
         <div class="flex items-center gap-2">
+          <!-- 保存（更新当前项目） -->
           <button
             @click="handleSave"
             :disabled="isSaving"
-            class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-700/60 hover:bg-slate-600/60 text-slate-200 text-sm transition-colors disabled:opacity-50"
+            class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors disabled:opacity-50"
+            :class="currentProjectId
+              ? 'bg-emerald-600/80 hover:bg-emerald-500 text-white'
+              : 'bg-slate-700/60 hover:bg-slate-600/60 text-slate-200'"
+            :title="currentProjectId ? '保存到当前项目' : '保存并创建新项目'"
           >
             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4" />
             </svg>
             {{ isSaving ? '保存中...' : '保存' }}
+          </button>
+
+          <!-- 保存为（另存为新项目副本） -->
+          <button
+            @click="handleSaveAs"
+            :disabled="isSaving"
+            class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-indigo-600/70 hover:bg-indigo-500 text-white text-sm font-medium transition-colors disabled:opacity-50"
+            title="将当前内容另存为一个新的项目副本"
+          >
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+            </svg>
+            保存为
           </button>
 
           <label class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-700/60 hover:bg-slate-600/60 text-slate-200 text-sm cursor-pointer transition-colors">
@@ -44,6 +62,16 @@
             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.066 2.573c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.573 1.066c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.066-2.573c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+            </svg>
+          </button>
+
+          <button
+            @click="resetToDefaults()"
+            class="p-1.5 rounded-lg bg-slate-700/60 hover:bg-slate-600/60 text-slate-300 transition-colors"
+            title="恢复面板默认大小"
+          >
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5v-4m0 4h-4m4 0l-5-5" />
             </svg>
           </button>
 
@@ -72,15 +100,30 @@
       </div>
     </header>
 
-    <!-- 情感曲线迷你图 -->
-    <div v-if="emotionalCurveData" class="flex-shrink-0 h-20 border-b border-slate-700/30 bg-slate-900/40 px-4">
+    <!-- 情感曲线迷你图（可调整高度） -->
+    <div
+      v-if="emotionalCurveData && layout.emotionHeight > 0"
+      class="flex-shrink-0 border-b border-slate-700/30 bg-slate-900/40 px-4 overflow-hidden"
+      :style="{ height: layout.emotionHeight + 'px' }"
+    >
       <EmotionCurve :data="emotionalCurveData" compact />
+    </div>
+    <!-- 情感曲线拖拽条 -->
+    <div
+      v-if="emotionalCurveData"
+      class="flex-shrink-0 h-1 cursor-ns-resize group relative hover:bg-indigo-500/60 active:bg-indigo-400 transition-colors"
+      @mousedown="startDragEmotion($event)"
+    >
+      <span class="absolute inset-x-0 top-1/2 -translate-y-1/2 h-[3px] w-8 mx-auto rounded-full bg-slate-600 group-hover:bg-indigo-400 transition-colors opacity-0 group-hover:opacity-100"></span>
     </div>
 
     <!-- 三栏主体布局 -->
     <div class="flex-1 flex overflow-hidden">
-      <!-- 左侧面板：因果图谱 / 关系网络 (280px) -->
-      <aside class="w-[280px] flex-shrink-0 border-r border-slate-700/50 bg-slate-900/30 overflow-hidden flex flex-col">
+      <!-- 左侧面板：因果图谱 / 关系网络（可调整宽度） -->
+      <aside
+        class="flex-shrink-0 border-r border-slate-700/50 bg-slate-900/30 overflow-hidden flex flex-col"
+        :style="{ width: layout.leftWidth + 'px' }"
+      >
         <!-- 选项卡切换 -->
         <div class="flex-shrink-0 flex border-b border-slate-700/50">
           <button
@@ -109,6 +152,14 @@
           <RelationNetwork v-else />
         </div>
       </aside>
+
+      <!-- 左侧面板拖拽条（水平调整宽度） -->
+      <div
+        class="flex-shrink-0 w-1 cursor-ew-resize group relative hover:bg-indigo-500/60 active:bg-indigo-400 transition-colors"
+        @mousedown="startDragLeft($event)"
+      >
+        <span class="absolute inset-y-0 left-1/2 -translate-x-1/2 w-[3px] h-8 my-auto rounded-full bg-slate-600 group-hover:bg-indigo-400 transition-colors opacity-0 group-hover:opacity-100"></span>
+      </div>
 
       <!-- 中间区域：场景卡片列表（自适应宽度） -->
       <main class="flex-1 overflow-auto p-4 space-y-4">
@@ -366,8 +417,19 @@
         </div>
       </main>
 
-      <!-- 右侧面板：剧本播放器 / YAML源码编辑器 (320px) -->
-      <aside class="w-[320px] flex-shrink-0 border-l border-slate-700/50 bg-slate-900/30 overflow-hidden flex flex-col">
+      <!-- 右侧面板拖拽条（水平调整宽度） -->
+      <div
+        class="flex-shrink-0 w-1 cursor-ew-resize group relative hover:bg-indigo-500/60 active:bg-indigo-400 transition-colors"
+        @mousedown="startDragRight($event)"
+      >
+        <span class="absolute inset-y-0 left-1/2 -translate-x-1/2 w-[3px] h-8 my-auto rounded-full bg-slate-600 group-hover:bg-indigo-400 transition-colors opacity-0 group-hover:opacity-100"></span>
+      </div>
+
+      <!-- 右侧面板：剧本播放器 / YAML源码编辑器（可调整宽度） -->
+      <aside
+        class="flex-shrink-0 border-l border-slate-700/50 bg-slate-900/30 overflow-hidden flex flex-col"
+        :style="{ width: layout.rightWidth + 'px' }"
+      >
         <!-- 选项卡切换 -->
         <div class="flex-shrink-0 flex border-b border-slate-700/50">
           <button
@@ -502,6 +564,164 @@
           </div>
         </div>
       </div>
+
+      <!-- 已有项目保存：元数据编辑弹窗 -->
+      <div v-if="showSaveMetaDialog" class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm" @click.self="showSaveMetaDialog = false">
+        <div class="bg-slate-800 rounded-xl border border-slate-700/50 w-full max-w-lg p-6 shadow-xl">
+          <!-- 标题 -->
+          <div class="flex items-center gap-3 mb-5">
+            <div class="w-10 h-10 rounded-full bg-emerald-500/20 flex items-center justify-center">
+              <svg class="w-5 h-5 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4" />
+              </svg>
+            </div>
+            <div>
+              <h3 class="text-lg font-semibold text-white">保存并更新项目信息</h3>
+              <p class="text-xs text-slate-400 mt-0.5">剧本内容已保存，可在此修改项目元数据</p>
+            </div>
+          </div>
+
+          <!-- 表单 -->
+          <div class="space-y-4">
+            <div>
+              <label class="block text-sm text-slate-300 mb-1.5">项目名称</label>
+              <input
+                v-model="saveMetaForm.title"
+                type="text"
+                placeholder="输入项目名称"
+                maxlength="100"
+                class="w-full bg-slate-900/50 border border-slate-600 rounded-lg px-3 py-2.5 text-sm text-slate-200 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/50 focus:border-emerald-500/50 transition-colors"
+              />
+            </div>
+
+            <div>
+              <label class="block text-sm text-slate-300 mb-1.5">创建人 / 负责人</label>
+              <input
+                v-model="saveMetaForm.owner"
+                type="text"
+                placeholder="输入负责人姓名"
+                maxlength="100"
+                class="w-full bg-slate-900/50 border border-slate-600 rounded-lg px-3 py-2.5 text-sm text-slate-200 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/50 focus:border-emerald-500/50 transition-colors"
+              />
+            </div>
+
+            <div>
+              <label class="block text-sm text-slate-300 mb-1.5">项目描述</label>
+              <textarea
+                v-model="saveMetaForm.description"
+                rows="2"
+                placeholder="可选：添加项目描述..."
+                maxlength="500"
+                class="w-full bg-slate-900/50 border border-slate-600 rounded-lg px-3 py-2.5 text-sm text-slate-200 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/50 focus:border-emerald-500/50 transition-colors resize-none"
+              ></textarea>
+            </div>
+
+            <!-- 备份信息展示 -->
+            <div v-if="backups.length > 0" class="rounded-lg bg-slate-900/60 border border-slate-700/40 p-3">
+              <div class="flex items-center justify-between text-xs mb-2">
+                <span class="text-slate-400">本地自动备份</span>
+                <button @click="clearAllBackups()" class="text-slate-600 hover:text-red-400 transition-colors">清除所有备份</button>
+              </div>
+              <div class="max-h-28 overflow-y-auto space-y-1">
+                <div
+                  v-for="b in backups.slice(0, 5)"
+                  :key="b.id"
+                  class="flex items-center justify-between text-xs px-2 py-1.5 rounded bg-slate-800/50"
+                >
+                  <div class="flex items-center gap-2 min-w-0">
+                    <span class="shrink-0 text-emerald-400">{{ b.label }}</span>
+                    <span class="text-slate-500 truncate">{{ backupTimeAgo(b.timestamp) }}</span>
+                  </div>
+                  <div class="flex items-center gap-2 shrink-0 ml-2">
+                    <span class="text-slate-600">{{ backupFormatSize(b.size) }}</span>
+                    <button @click="removeBackup(b.id)" class="text-slate-600 hover:text-red-400 transition-colors" title="删除此备份">&times;</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- 操作按钮 -->
+          <div class="mt-6 flex justify-end gap-3">
+            <button
+              @click="showSaveMetaDialog = false"
+              class="px-4 py-2 text-sm text-slate-400 hover:text-white transition-colors"
+            >跳过</button>
+            <button
+              @click="confirmSaveMeta()"
+              :disabled="isUpdatingProject"
+              class="px-5 py-2 text-sm bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white rounded-lg transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1.5"
+            >
+              <svg v-if="isUpdatingProject" class="animate-spin w-3.5 h-3.5" fill="none" viewBox="0 0 24 24">
+                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+              </svg>
+              {{ isUpdatingProject ? '保存中...' : '确认保存' }}
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- 保存为：另存为新项目弹窗 -->
+      <div v-if="showSaveAsDialog" class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm" @click.self="showSaveAsDialog = false">
+        <div class="bg-slate-800 rounded-xl border border-slate-700/50 w-full max-w-md p-6 shadow-xl">
+          <!-- 标题 -->
+          <div class="flex items-center gap-3 mb-5">
+            <div class="w-10 h-10 rounded-full bg-indigo-500/20 flex items-center justify-center">
+              <svg class="w-5 h-5 text-indigo-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+              </svg>
+            </div>
+            <div>
+              <h3 class="text-lg font-semibold text-white">另存为新项目</h3>
+              <p class="text-xs text-slate-400 mt-0.5">创建当前内容的独立副本，原项目不受影响</p>
+            </div>
+          </div>
+
+          <!-- 表单 -->
+          <div class="space-y-4">
+            <div>
+              <label class="block text-sm text-slate-300 mb-1.5">新项目名称 <span class="text-red-400">*</span></label>
+              <input
+                ref="saveAsInputRef"
+                v-model="saveAsName"
+                type="text"
+                placeholder="输入新项目名称，如「校园青春短剧 v2」"
+                maxlength="100"
+                class="w-full bg-slate-900/50 border border-slate-600 rounded-lg px-3 py-2.5 text-sm text-slate-200 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-500/50 transition-colors"
+                @keyup.enter="confirmSaveAs()"
+              />
+              <p v-if="currentProjectId" class="mt-1.5 text-[11px] text-slate-500 flex items-center gap-1">
+                <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+                将基于当前项目创建独立副本，包含完整的剧本内容
+              </p>
+            </div>
+
+            <div v-if="saveAsError" class="px-3 py-2 rounded-lg bg-red-500/10 border border-red-500/20 text-sm text-red-300">
+              {{ saveAsError }}
+            </div>
+          </div>
+
+          <!-- 操作按钮 -->
+          <div class="mt-6 flex justify-end gap-3">
+            <button
+              @click="showSaveAsDialog = false"
+              class="px-4 py-2 text-sm text-slate-400 hover:text-white transition-colors"
+            >取消</button>
+            <button
+              @click="confirmSaveAs()"
+              :disabled="isCreatingSaveAs || !saveAsName.trim()"
+              class="px-5 py-2 text-sm bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white rounded-lg transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1.5"
+            >
+              <svg v-if="isCreatingSaveAs" class="animate-spin w-3.5 h-3.5" fill="none" viewBox="0 0 24 24">
+                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+              </svg>
+              {{ isCreatingSaveAs ? '创建中...' : '确认另存为' }}
+            </button>
+          </div>
+        </div>
+      </div>
     </Teleport>
   </div>
 </template>
@@ -516,6 +736,8 @@ import { useGraphStore } from '~/stores/graphStore'
 import { useProjectStore } from '~/stores/projectStore'
 import { useDeepSeekKey } from '~/composables/useDeepSeekKey'
 import { useDialog } from '~/composables/useDialog'
+import { useEditorLayout } from '~/composables/useEditorLayout'
+import { useAutoBackup } from '~/composables/useAutoBackup'
 
 import CausalGraph from '~/components/CausalGraph.vue'
 import RelationNetwork from '~/components/RelationNetwork.vue'
@@ -531,6 +753,18 @@ const graphStore = useGraphStore()
 const projectStore = useProjectStore()
 const deepSeek = useDeepSeekKey()
 const dialog = useDialog()
+const { layout, resetToDefaults, setLeftWidth, setRightWidth, setEmotionHeight } = useEditorLayout()
+const {
+  backups,
+  lastBackupTime,
+  createBackup,
+  removeBackup,
+  clearAllBackups,
+  startAutoSave,
+  stopAutoSave,
+  timeAgo: backupTimeAgo,
+  formatSize: backupFormatSize,
+} = useAutoBackup()
 
 // ==================== UI 状态 ====================
 type LoadStatus = 'loading' | 'loaded' | 'empty' | 'error'
@@ -551,6 +785,22 @@ const newProjectName = ref('')
 const saveError = ref('')
 const isCreatingProject = ref(false)
 const projectNameInput = ref<HTMLInputElement | null>(null)
+
+// 已有项目保存：元数据编辑弹窗
+const showSaveMetaDialog = ref(false)
+const saveMetaForm = ref({
+  title: '',
+  owner: '',
+  description: '',
+})
+const isUpdatingProject = ref(false)
+
+// 保存为：另存为新项目弹窗
+const showSaveAsDialog = ref(false)
+const saveAsName = ref('')
+const saveAsError = ref('')
+const isCreatingSaveAs = ref(false)
+const saveAsInputRef = ref<HTMLInputElement | null>(null)
 
 // ==================== 计算属性 ====================
 const scriptData = computed(() => scriptStore.scriptData)
@@ -678,6 +928,11 @@ async function loadData() {
 
   const success = initFromYaml(rawYaml)
   loadStatus.value = success ? 'loaded' : (loadError.value ? 'error' : 'empty')
+
+  // 数据加载成功后启动自动备份定时器
+  if (success) {
+    startAutoSave(() => serializeToYaml())
+  }
 }
 
 function retryLoad() {
@@ -739,6 +994,11 @@ async function saveScriptToBackend(yamlContent: string): Promise<string> {
   return newId
 }
 
+/**
+ * 「保存」按钮 — 严格更新当前项目，绝不创建新副本
+ * - 已有 project_id → 更新剧本 + 更新项目元数据
+ * - 无 project_id → 提示用户使用「保存为」或先关联项目
+ */
 async function handleSave() {
   isSaving.value = true
   try {
@@ -748,31 +1008,214 @@ async function handleSave() {
       return
     }
 
-    // 同步本地 YAML 源码视图
+    // 同步本地 YAML 源码视图 + sessionStorage
     yamlSource.value = yamlContent
     sessionStorage.setItem('script_yaml', yamlContent)
 
-    // 调用后端 API 保存
-    const savedScriptId = await saveScriptToBackend(yamlContent)
+    // === 场景 A：已有项目 → 直接更新 ===
+    if (currentProjectId.value) {
+      // 1) 保存/更新剧本内容到后端
+      const savedScriptId = await saveScriptToBackend(yamlContent)
+      console.log(`[保存] 剧本已更新, script_id=${savedScriptId}`)
 
-    console.log(`[保存] 剧本已保存到服务器, script_id=${savedScriptId}`)
+      // 2) 本地自动备份
+      createBackup(yamlContent, '手动保存')
 
-    // 如果还没有关联的项目，弹出工程命名对话框
-    if (!currentProjectId.value) {
-      newProjectName.value = scriptData.value?.metadata?.title || ''
-      showSaveDialog.value = true
-      saveError.value = ''
-      await nextTick()
-      projectNameInput.value?.focus()
-    } else {
-      // 已有项目，静默保存成功
-      await dialog.alert('保存成功！', { variant: 'success' })
+      // 3) 后端快照
+      if (savedScriptId) {
+        try {
+          await fetch(`/api/scripts/${savedScriptId}/snapshots`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/yaml; charset=utf-8' },
+            body: yamlContent,
+          })
+        } catch { /* 快照失败不阻断 */ }
+      }
+
+      // 4) 弹出元数据编辑弹窗（可选编辑 title/owner/description）
+      await showExistingProjectSaveDialog()
+      return
+    }
+
+    // === 场景 B：无关联项目 → 引导用户选择 ===
+    const choice = await dialog.confirm(
+      '当前剧本尚未关联到任何项目。\n\n• 点击「保存为」可创建一个全新的项目副本\n• 如需更新已有项目，请从首页重新打开该项目',
+      {
+        title: '未关联项目',
+        variant: 'warning',
+        confirmText: '前往保存为',
+        cancelText: '取消',
+      }
+    )
+    if (choice) {
+      handleSaveAs()
     }
   } catch (e: any) {
     console.error('保存失败:', e)
     await dialog.alert(e.message || '保存失败，请检查网络连接', { variant: 'danger' })
   } finally {
     isSaving.value = false
+  }
+}
+
+/**
+ * 「保存为」按钮 — 将当前内容另存为一个全新的项目副本
+ * 流程：输入新名称 → 创建新剧本记录 → 创建新项目 → 关联两者
+ */
+async function handleSaveAs() {
+  // 预填充默认名称
+  const baseName = scriptData.value?.metadata?.title || '未命名项目'
+  saveAsName.value = currentProjectId.value ? `${baseName} (副本)` : baseName
+  saveAsError.value = ''
+  showSaveAsDialog.value = true
+  await nextTick()
+  saveAsInputRef.value?.focus()
+  saveAsInputRef.value?.select()
+}
+
+/** 确认「保存为」：创建新项目副本 */
+async function confirmSaveAs() {
+  const name = saveAsName.value.trim()
+  if (!name) {
+    saveAsError.value = '请输入项目名称'
+    return
+  }
+
+  isCreatingSaveAs.value = true
+  saveAsError.value = ''
+
+  try {
+    const yamlContent = serializeToYaml()
+    if (!yamlContent) throw new Error('没有可保存的剧本数据')
+
+    // 同步本地
+    yamlSource.value = yamlContent
+    sessionStorage.setItem('script_yaml', yamlContent)
+
+    // 1) 创建新剧本记录（独立的副本）
+    const scriptRes = await fetch('/api/scripts', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        title: name,
+        style: scriptData.value?.metadata?.style || 'short_drama',
+        yaml_content: yamlContent,
+      }),
+    })
+    if (!scriptRes.ok) throw new Error(`创建剧本副本失败 (HTTP ${scriptRes.status})`)
+    const scriptDataRes = await scriptRes.json()
+    const newScriptId = scriptDataRes.id || scriptDataRes.script_id
+    if (!newScriptId) throw new Error('服务器未返回新剧本 ID')
+
+    // 2) 创建新项目并关联剧本
+    const style = scriptData.value?.metadata?.style || 'short_drama'
+    const projRes = await fetch('/api/projects', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        title: name,
+        description: `${name} - ${scriptStore.scenes.length} 场景（副本）`,
+        style,
+      }),
+    })
+    if (!projRes.ok) throw new Error(`创建项目副本失败 (HTTP ${projRes.status})`)
+    const newProject = await projRes.json()
+
+    // 3) 关联剧本到新项目
+    if (newProject.id && newScriptId) {
+      await fetch(`/api/projects/${newProject.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ script_id: newScriptId }),
+      }).catch(() => {})
+    }
+
+    // 4) 切换当前上下文到新项目（用户现在在编辑这个新副本）
+    currentScriptId.value = newScriptId
+    currentProjectId.value = newProject.id
+
+    // 5) 本地备份
+    createBackup(yamlContent, `另存为: ${name}`)
+
+    // 6) 更新本地项目列表
+    projectStore.addProjectToLocal({
+      id: newProject.id,
+      title: name,
+      description: '',
+      style,
+      status: 'draft',
+      owner: 'anonymous',
+      novel_preview: null,
+      script_id: newScriptId,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    })
+
+    showSaveAsDialog.value = false
+
+    await dialog.alert(
+      `已成功将内容另存为新项目「${name}」。\n原项目不受影响，您现在正在编辑新副本。`,
+      { variant: 'success', title: '另存为成功' }
+    )
+  } catch (e: any) {
+    saveAsError.value = e.message || '另存为失败，请重试'
+  } finally {
+    isCreatingSaveAs.value = false
+  }
+}
+
+/** 已有项目保存时：显示元数据编辑弹窗 */
+async function showExistingProjectSaveDialog() {
+  // 先获取当前项目的最新信息用于填充表单
+  try {
+    const res = await fetch(`/api/projects/${currentProjectId.value}`)
+    if (res.ok) {
+      const project = await res.json()
+      saveMetaForm.value = {
+        title: project.title || '',
+        owner: project.owner || '',
+        description: project.description || '',
+      }
+    }
+  } catch { /* 使用默认值 */ }
+
+  if (!saveMetaForm.value.title) {
+    saveMetaForm.value.title = scriptData.value?.metadata?.title || ''
+  }
+  showSaveMetaDialog.value = true
+}
+
+/** 确认元数据修改并更新项目 */
+async function confirmSaveMeta() {
+  isUpdatingProject.value = true
+  try {
+    const res = await fetch(`/api/projects/${currentProjectId.value}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        title: saveMetaForm.value.title || undefined,
+        owner: saveMetaForm.value.owner || undefined,
+        description: saveMetaForm.value.description || undefined,
+      }),
+    })
+
+    if (!res.ok) throw new Error(`更新项目失败 (HTTP ${res.status})`)
+
+    showSaveMetaDialog.value = false
+
+    // 构建成功反馈信息
+    const parts = [`剧本内容已保存`]
+    if (backups.value.length > 0) {
+      parts.push(`本地备份 #${backups.value.length} 已创建`)
+    }
+    await dialog.alert(parts.join('，') + '。', {
+      variant: 'success',
+      title: '保存成功',
+    })
+  } catch (e: any) {
+    await dialog.alert(e.message || '更新项目信息失败', { variant: 'danger' })
+  } finally {
+    isUpdatingProject.value = false
   }
 }
 
@@ -1046,5 +1489,54 @@ const historyRecords = computed(() => {
 function showHistoryPanel(sceneId: number, beatIndex: number) {
   historyTarget.value = { sceneId, beatIndex }
   historyPanelVisible.value = true
+}
+
+// ==================== 面板拖拽调整大小 ====================
+
+/** 当前正在进行的拖拽类型 */
+const dragging = ref<'left' | 'right' | 'emotion' | null>(null)
+
+function startDragLeft(e: MouseEvent) {
+  e.preventDefault()
+  dragging.value = 'left'
+  document.addEventListener('mousemove', onDragMove)
+  document.addEventListener('mouseup', onDragEnd)
+}
+
+function startDragRight(e: MouseEvent) {
+  e.preventDefault()
+  dragging.value = 'right'
+  document.addEventListener('mousemove', onDragMove)
+  document.addEventListener('mouseup', onDragEnd)
+}
+
+function startDragEmotion(e: MouseEvent) {
+  e.preventDefault()
+  dragging.value = 'emotion'
+  document.addEventListener('mousemove', onDragMove)
+  document.addEventListener('mouseup', onDragEnd)
+}
+
+function onDragMove(e: MouseEvent) {
+  if (!dragging.value) return
+  if (dragging.value === 'left') {
+    setLeftWidth(e.clientX)
+  } else if (dragging.value === 'right') {
+    // 右侧面板：从窗口右边缘算起
+    setRightWidth(window.innerWidth - e.clientX)
+  } else if (dragging.value === 'emotion') {
+    const container = document.querySelector('.h-screen.flex.flex-col')
+    if (container) {
+      const rect = (container as HTMLElement).getBoundingClientRect()
+      const headerHeight = 56 // header 高度约 56px
+      setEmotionHeight(e.clientY - rect.top - headerHeight)
+    }
+  }
+}
+
+function onDragEnd() {
+  dragging.value = null
+  document.removeEventListener('mousemove', onDragMove)
+  document.removeEventListener('mouseup', onDragEnd)
 }
 </script>

@@ -713,6 +713,7 @@ pub async fn update_project(
     if body.description.is_some() { sets.push(format!("description = ${}", bind_idx)); bind_idx += 1; }
     if body.status.is_some() { sets.push(format!("status = ${}", bind_idx)); bind_idx += 1; }
     if body.style.is_some() { sets.push(format!("style = ${}", bind_idx)); bind_idx += 1; }
+    if body.owner.is_some() { sets.push(format!("owner = ${}", bind_idx)); bind_idx += 1; }
     // script_id 需要转为 UUID 或 NULL
     if body.script_id.is_some() { sets.push(format!("script_id = ${}::uuid", bind_idx)); bind_idx += 1; }
 
@@ -731,6 +732,7 @@ pub async fn update_project(
     if let Some(ref v) = body.description { query = query.bind(v); }
     if let Some(ref v) = body.status { query = query.bind(v); }
     if let Some(ref v) = body.style { query = query.bind(v); }
+    if let Some(ref v) = body.owner { query = query.bind(v); }
     if let Some(ref v) = body.script_id {
         if v.is_empty() {
             query = query.bind::<Option<String>>(None);
@@ -802,4 +804,99 @@ async fn get_project_by_id(db: &sqlx::PgPool, id: &str) -> Response {
         }
         None => error_response(StatusCode::NOT_FOUND, "项目不存在"),
     }
+}
+
+// ==================== 剧本快照（自动备份） ====================
+
+/// 创建剧本快照（自动备份）
+pub async fn create_snapshot(
+    State(state): State<AppState>,
+    axum::extract::Path(script_id): axum::extract::Path<String>,
+    body: String,
+) -> Response {
+    let db = match &state.db {
+        Some(pool) => pool,
+        None => return error_response(StatusCode::SERVICE_UNAVAILABLE, "数据库不可用"),
+    };
+
+    let uuid_id = match sqlx::types::Uuid::parse_str(&script_id) {
+        Ok(u) => u,
+        Err(_) => return error_response(StatusCode::BAD_REQUEST, "无效的剧本ID格式"),
+    };
+
+    // 限制每个剧本最多保留 20 个快照，超出则删除最旧的
+    let count_result = sqlx::query_scalar::<_, i64>(
+        "SELECT COUNT(*) FROM script_snapshots WHERE script_id = $1"
+    )
+    .bind(uuid_id)
+    .fetch_one(db)
+    .await;
+
+    if let Ok(count) = count_result {
+        if count >= 20 {
+            sqlx::query(
+                "DELETE FROM script_snapshots WHERE script_id = $1 AND id IN (SELECT id FROM script_snapshots WHERE script_id = $1 ORDER BY created_at ASC LIMIT 1)"
+            )
+            .bind(uuid_id)
+            .execute(db)
+            .await
+            .ok();
+        }
+    }
+
+    let result = sqlx::query(
+        "INSERT INTO script_snapshots (script_id, yaml_content, label) VALUES ($1, $2, $3)"
+    )
+    .bind(uuid_id)
+    .bind(&body)
+    .bind("手动保存") // 默认标签
+    .execute(db)
+    .await;
+
+    match result {
+        Ok(_) => {
+            tracing::info!(script_id = %script_id, yaml_len = body.len(), "已创建剧本快照");
+            Json(serde_json::json!({
+                "success": true,
+                "message": "快照创建成功",
+            })).into_response()
+        }
+        Err(e) => {
+            tracing::error!(error = %e, "创建快照失败");
+            error_response(StatusCode::INTERNAL_SERVER_ERROR, &format!("快照创建失败: {}", e))
+        }
+    }
+}
+
+/// 获取剧本的快照列表
+pub async fn list_snapshots(
+    State(state): State<AppState>,
+    axum::extract::Path(script_id): axum::extract::Path<String>,
+) -> Response {
+    let db = match &state.db {
+        Some(pool) => pool,
+        None => return error_response(StatusCode::SERVICE_UNAVAILABLE, "数据库不可用"),
+    };
+
+    let uuid_id = match sqlx::types::Uuid::parse_str(&script_id) {
+        Ok(u) => u,
+        Err(_) => return error_response(StatusCode::BAD_REQUEST, "无效的剧本ID格式"),
+    };
+
+    let rows: Vec<(sqlx::types::Uuid, String, chrono::DateTime<chrono::Utc>)> =
+        sqlx::query_as("SELECT id, label, created_at FROM script_snapshots WHERE script_id = $1 ORDER BY created_at DESC LIMIT 20")
+            .bind(uuid_id)
+            .fetch_all(db)
+            .await
+            .unwrap_or_default();
+
+    let snapshots: Vec<serde_json::Value> = rows.into_iter().map(|(id, label, created_at)| {
+        serde_json::json!({
+            "id": id.to_string(),
+            "label": label,
+            "created_at": created_at.format("%Y-%m-%dT%H:%M:%SZ").to_string(),
+        })
+    }).collect();
+
+    Json(serde_json::json!({ "snapshots": snapshots, "total": snapshots.len() })).into_response()
 }

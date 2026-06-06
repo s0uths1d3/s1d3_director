@@ -516,7 +516,13 @@ async function openProject(proj: any) {
     } catch (e) {
       console.error('请求剧本数据出错:', e)
     }
-    router.push('/editor')
+    router.push({
+      path: '/editor',
+      query: {
+        script_id: proj.script_id || '',
+        project_id: proj.id || '',
+      },
+    })
   } else {
     await dialog.alert('该项目暂无关联剧本，请在下方生成剧本', { variant: 'warning' })
   }

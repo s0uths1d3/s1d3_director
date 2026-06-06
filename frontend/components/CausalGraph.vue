@@ -150,11 +150,14 @@ const chartOption = computed(() => {
         roam: true,
         draggable: true,
         force: {
-          repulsion: 200,
-          gravity: 0.05,
-          edgeLength: [80, 200],
+          repulsion: 350,
+          gravity: 0.02,
+          edgeLength: [120, 250],
           layoutAnimation: true,
+          friction: 0.6,
+          preventOverlap: true,
         },
+        initLayout: 'circular',
         emphasis: {
           focus: 'adjacency',
           lineStyle: {
@@ -212,7 +215,7 @@ function truncateText(text: string, maxLen: number): string {
   return text.length > maxLen ? text.slice(0, maxLen) + '…' : text
 }
 
-// 点击节点高亮
+// 点击节点高亮（使用 dispatchAction 避免重置力导向布局）
 function handleChartClick(params: any) {
   hideContextMenu()
   if (params.dataType !== 'node') return
@@ -226,8 +229,21 @@ function handleChartClick(params: any) {
     graphStore.highlightDownstream(eventId, downstream)
   }
 
+  // 使用 dispatchAction 更新高亮状态，不触发 setOption 重置布局
   nextTick(() => {
-    chartRef.value?.setOption(chartOption.value)
+    if (!chartRef.value) return
+    const instance = chartRef.value
+    // 先取消所有高亮
+    instance.dispatchAction({ type: 'downplay' })
+    // 高亮选中节点及其下游
+    const highlightIds = [graphStore.highlightedEventId, ...graphStore.affectedEvents].filter(Boolean)
+    for (const id of highlightIds) {
+      instance.dispatchAction({
+        type: 'highlight',
+        seriesIndex: 0,
+        name: id,
+      })
+    }
   })
 }
 
