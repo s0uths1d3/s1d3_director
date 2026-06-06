@@ -469,7 +469,9 @@ async fn generate_single_chunk(
         "participants": [],
         "stage_direction": "镜头从窗外阳光缓慢推进至林曦的侧脸",
         "plot_line_tags": ["plot_main"],
-        "alternatives": [],
+        "alternatives": [
+          {{"content": "一道阴影落在书页上，林曦抬起头，撞进一双平静如水的眼睛里。", "tone": "文艺"}}
+        ],
         "selected": 0
       }},
       {{
@@ -484,7 +486,8 @@ async fn generate_single_chunk(
         "stage_direction": null,
         "plot_line_tags": ["plot_main"],
         "alternatives": [
-          {{"content": "请问，这个位置……", "tone": "礼貌"}}
+          {{"content": "请问，这个位置……有人吗？", "tone": "礼貌"}},
+          {{"content": "呃，打扰了——这里有人坐吗？", "tone": "犹豫"}}
         ],
         "selected": 0
       }}
@@ -504,7 +507,12 @@ async fn generate_single_chunk(
 5. **动作描写要有画面感**：包含感官细节（视觉/听觉/触觉），能直接指导拍摄
 6. **情感状态要精确**：避免笼统的"平静"，使用"平静但暗藏波澜""压抑到极点后突然爆发"
 7. **群戏参与者必须完整**：多人场景中每个人物都要有明确的 role 和对应的 dialogue/stage_direction
-8. **每章生成 3~8 个场景，场景 ID 从 1 开始递增**
+8. **备选方案（alternatives）规则**：
+   - 对话/独白节拍**必须提供 2~3 个备选方案**，每个有不同 tone（语气/风格）
+   - 动作节拍至少提供 1 个备选方案
+   - tone 取值示例：礼貌/犹豫/激动/冷淡/温柔/愤怒/文艺/口语化/正式
+   - ❌ "alternatives": []   ✅ "alternatives": [{{"content":"不同措辞版本", "tone":"语气标签"}}]
+9. **每章生成 3~8 个场景，场景 ID 从 1 开始递增**
 
 ## 本章原文
 

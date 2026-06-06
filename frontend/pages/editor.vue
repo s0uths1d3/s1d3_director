@@ -199,6 +199,7 @@
                   <div v-if="ch.summary" class="chapter-summary text-[11px] text-slate-500 mt-0.5 line-clamp-2">{{ ch.summary }}</div>
                   <div class="chapter-scenes text-[10px] text-slate-600 mt-1 flex items-center gap-2">
                     <span>{{ ch.scene_ids.length }} 场景</span>
+                    <span class="text-slate-500">· {{ getChapterBeatCount(ch) }} 节拍</span>
                     <span v-if="ch.plot_line" class="px-1.5 py-0.5 rounded bg-indigo-500/10 text-indigo-400">{{ ch.plot_line }}</span>
                     <span v-else class="text-slate-600">主线</span>
                   </div>
@@ -1013,6 +1014,14 @@ function shouldShowChapterHeader(sceneIndex: number): boolean {
   // 与前一个场景的 chapter_id 不同时显示
   const prevScene = scriptStore.scenes[sceneIndex - 1]
   return prevScene?.chapter_id !== scene.chapter_id
+}
+
+/** 获取某章节的总节拍数 */
+function getChapterBeatCount(ch: { id: string; scene_ids: number[] }): number {
+  return ch.scene_ids.reduce((sum, sid) => {
+    const scene = scriptStore.scenes.find(s => s.id === sid)
+    return sum + (scene?.beats?.length || 0)
+  }, 0)
 }
 
 /** 点击章节项滚动到对应场景 */

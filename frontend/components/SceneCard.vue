@@ -143,15 +143,15 @@
               <!-- 参与者列表 -->
               <div class="space-y-1.5">
                 <div v-for="p in beat.participants" :key="p.character_id"
-                     class="participant-line flex items-start gap-2 text-sm"
+                     class="participant-line flex items-start gap-2 text-sm min-w-0"
                      :class="'role-' + p.role">
-                  <span class="participant-name font-medium shrink-0"
+                  <span class="participant-name font-medium min-w-0 truncate"
                     :class="{
                       'text-blue-300': p.role === 'speaker',
                       'text-slate-400': p.role === 'listener',
                       'text-slate-500': p.role === 'observer',
                     }">{{ getCharacterName(p.character_id) }}</span>
-                  <span v-if="p.dialogue" class="participant-dialogue text-slate-200">: {{ p.dialogue }}</span>
+                  <span v-if="p.dialogue" class="participant-dialogue text-slate-200">: {{ resolveContentPlaceholders(p.dialogue) }}</span>
                   <span v-else class="participant-role-hint text-slate-600 text-xs italic">({{ p.role === 'speaker' ? '说话' : p.role === 'listener' ? '倾听' : '观察' }})</span>
                 </div>
               </div>
@@ -265,6 +265,16 @@ function getCharacterName(characterId: string): string {
 /** 判断 beat 是否为群戏 beat（有 participants） */
 function isGroupBeat(beat: Beat): boolean {
   return !!beat.participants && beat.participants.length > 0
+}
+
+/** 替换内容中的 char_XXX 占位符为实际角色名 */
+function resolveContentPlaceholders(text: string): string {
+  if (!text) return text
+  // 匹配 char_001, char_002 等模式，替换为实际角色名
+  return text.replace(/char_(\d{3})/g, (_match, num) => {
+    const charId = `char_${num.padStart(3, '0')}`
+    return scriptStore.getCharacterName(charId)
+  })
 }
 
 // ---- Vue Transition 动画钩子：实现平滑高度过渡 ----

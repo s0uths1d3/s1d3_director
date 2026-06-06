@@ -54,7 +54,23 @@
       />
 
       <!-- 右侧操作按钮组 -->
-      <div class="ml-auto flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
+      <div class="ml-auto flex items-center gap-0.5">
+        <!-- AI 重生（始终可见） -->
+        <button
+          @click="$emit('ai-regenerate')"
+          class="flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-medium border transition-all"
+          :class="isRegenerating
+            ? 'border-indigo-500/40 bg-indigo-500/10 text-indigo-400 animate-pulse'
+            : 'border-slate-700/40 bg-slate-800/50 text-slate-400 hover:border-indigo-500/50 hover:text-indigo-400 hover:bg-indigo-500/5'"
+          :title="isRegenerating ? '生成中...' : 'AI 重新生成'"
+        >
+          <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+          </svg>
+          {{ isRegenerating ? '生成中' : 'AI 重新生成' }}
+        </button>
+        <!-- 更多操作（hover显示） -->
+        <div class="flex items-center gap-0.5 opacity-30 group-hover:opacity-100 transition-opacity">
         <!-- 上移 -->
         <button
           @click="$emit('move-up')"
@@ -103,6 +119,7 @@
           </svg>
         </button>
       </div>
+      </div>
     </div>
 
     <!-- ===== 内容编辑区 ===== -->
@@ -113,87 +130,58 @@
       @input="handleInput"
       @keydown.enter="handleEnterKeydown"
       class="text-sm text-slate-200 leading-relaxed outline-none min-h-[20px] empty:before:content-[attr(data-placeholder)] empty:before:text-slate-600 empty:before:text-xs focus:empty:before:text-slate-500 break-words"
-      :textContent="localContent"
+      :textContent="displayedContent"
       ref="editorRef"
     ></div>
 
-    <!-- ===== 备选项选择区 ===== -->
-    <div v-if="beat.alternatives && beat.alternatives.length > 0" class="mt-2 pt-2 border-t border-slate-700/20">
+    <!-- ===== 备选项选择区（始终显示，方案1=当前内容） ===== -->
+    <div class="mt-2 pt-2 border-t border-slate-700/20">
       <div class="flex items-center justify-between mb-1.5">
-        <span class="text-[10px] text-slate-500">备选方案 ({{ beat.alternatives.length }})</span>
+        <span class="text-[10px] text-slate-500">备选方案 ({{ (beat.alternatives?.length || 0) + 1 }})</span>
         <button
           @click="showAddAltForm = !showAddAltForm"
-          class="text-[10px] text-indigo-400/70 hover:text-indigo-300 transition-colors"
-        >+ 自定义方案</button>
+          class="text-[10px] text-slate-500 hover:text-indigo-300 transition-colors"
+        >+ 自定义</button>
       </div>
 
-      <!-- 方案标签列表 -->
+      <!-- 方案标签列表：方案1(当前) + alternatives -->
       <div class="flex flex-wrap gap-1.5">
+        <!-- 方案1 = 当前选中内容 -->
         <button
-          v-for="(alt, altIdx) in beat.alternatives"
-          :key="altIdx"
-          @click="$emit('select-alt', altIdx)"
-          class="group/tag px-2 py-1 text-[11px] rounded-md border transition-all flex items-center gap-1"
-          :class="beat.selected === altIdx
+          @click="$emit('select-alt', -1)"
+          class="px-2 py-1 text-[11px] rounded-md border transition-all flex items-center gap-1"
+          :class="(beat.selected ?? 0) === 0 || beat.selected === -1 || !beat.selected
             ? 'border-indigo-500 bg-indigo-500/15 text-indigo-300'
             : 'border-slate-700/50 text-slate-400 hover:border-slate-600 hover:text-slate-300'"
         >
-          <span class="font-medium">{{ alt.name || ('方案' + (altIdx + 1)) }}</span>
-          <span v-if="alt.emotion" class="opacity-60 text-[10px]">({{ alt.emotion }})</span>
-          <span
-            @click.stop="$emit('remove-alt', altIdx)"
-            class="ml-0.5 opacity-0 group-hover/tag:opacity-100 text-slate-600 hover:text-red-400 transition-opacity cursor-pointer text-[10px] leading-none"
-            title="删除此方案"
-          >&times;</span>
+          <span class="font-medium">方案1</span>
+          <span class="opacity-50 text-[10px]">(当前)</span>
         </button>
+
+        <!-- 来自 alternatives 的方案2、方案3... -->
+        <template v-if="beat.alternatives && beat.alternatives.length > 0">
+          <button
+            v-for="(alt, altIdx) in beat.alternatives"
+            :key="altIdx"
+            @click="$emit('select-alt', altIdx)"
+            class="group/tag px-2 py-1 text-[11px] rounded-md border transition-all flex items-center gap-1"
+            :class="beat.selected === altIdx + 1
+              ? 'border-indigo-500 bg-indigo-500/15 text-indigo-300'
+              : 'border-slate-700/50 text-slate-400 hover:border-slate-600 hover:text-slate-300'"
+          >
+            <span class="font-medium">{{ alt.name || ('方案' + (altIdx + 2)) }}</span>
+            <span v-if="alt.tone" class="opacity-60 text-[10px]">({{ alt.tone }})</span>
+            <span v-else-if="alt.emotion" class="opacity-60 text-[10px]">({{ alt.emotion }})</span>
+            <span
+              @click.stop="$emit('remove-alt', altIdx)"
+              class="ml-0.5 opacity-0 group-hover/tag:opacity-100 text-slate-600 hover:text-red-400 transition-opacity cursor-pointer text-[10px] leading-none"
+              title="删除此方案"
+            >&times;</span>
+          </button>
+        </template>
       </div>
 
       <!-- 自定义方案添加表单 -->
-      <div v-if="showAddAltForm" class="mt-2 p-2.5 rounded-lg bg-slate-900/60 border border-slate-700/40 space-y-2">
-        <input
-          v-model="newAltName"
-          placeholder="方案名称（可选）"
-          class="w-full px-2 py-1 text-xs bg-slate-800 border border-slate-600/50 rounded text-slate-200 placeholder-slate-600 outline-none focus:border-indigo-500 transition-colors"
-          @keydown.enter="confirmAddAlt"
-        />
-        <input
-          v-model="newAltEmotion"
-          placeholder="关联情绪（可选）"
-          class="w-full px-2 py-1 text-xs bg-slate-800 border border-slate-600/50 rounded text-slate-200 placeholder-slate-600 outline-none focus:border-indigo-500 transition-colors"
-          @keydown.enter="confirmAddAlt"
-        />
-        <textarea
-          v-model="newAltContent"
-          placeholder="方案内容..."
-          rows="2"
-          class="w-full px-2 py-1.5 text-xs bg-slate-800 border border-slate-600/50 rounded text-slate-200 placeholder-slate-600 outline-none focus:border-indigo-500 transition-colors resize-none"
-        ></textarea>
-        <div class="flex justify-end gap-2">
-          <button
-            @click="showAddAltForm = false; resetAltForm()"
-            class="px-2.5 py-1 text-[10px] text-slate-400 hover:text-slate-200 transition-colors"
-          >取消</button>
-          <button
-            @click="confirmAddAlt"
-            :disabled="!newAltContent.trim()"
-            class="px-2.5 py-1 text-[10px] font-medium rounded bg-indigo-600 text-white hover:bg-indigo-500 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-          >确认</button>
-        </div>
-      </div>
-    </div>
-
-    <!-- 无备选项时显示添加入口 -->
-    <div v-else class="mt-2 pt-1.5">
-      <button
-        @click="showAddAltForm = true"
-        class="text-[10px] text-slate-600 hover:text-indigo-400 transition-colors flex items-center gap-1"
-      >
-        <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
-        </svg>
-        添加备选方案
-      </button>
-
       <div v-if="showAddAltForm" class="mt-2 p-2.5 rounded-lg bg-slate-900/60 border border-slate-700/40 space-y-2">
         <input
           v-model="newAltName"
@@ -232,6 +220,7 @@
 <script setup lang="ts">
 import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
 import type { Beat } from '~/stores/scriptStore'
+import { useScriptStore } from '~/stores/scriptStore'
 
 interface Props {
   sceneId: number
@@ -261,6 +250,7 @@ const emit = defineEmits<{
   'toggle-history': []
 }>()
 
+const scriptStore = useScriptStore()
 const editorRef = ref<HTMLElement>()
 const typeDropdownRef = ref<HTMLElement>()
 const localContent = ref(props.beat.content)
@@ -384,6 +374,19 @@ function resetAltForm() {
 }
 
 // ---- 外部变化同步 ----
+
+/** 替换内容中的 char_XXX 占位符为实际角色名 */
+function resolvePlaceholders(text: string): string {
+  if (!text) return text
+  return text.replace(/char_(\d{3})/g, (_match, num) => {
+    const charId = `char_${num.padStart(3, '0')}`
+    return scriptStore.getCharacterName(charId)
+  })
+}
+
+/** 显示内容（占位符已替换为实际角色名） */
+const displayedContent = computed(() => resolvePlaceholders(localContent.value))
+
 watch(() => props.beat.content, (newVal) => {
   if (newVal !== localContent.value) {
     localContent.value = newVal

@@ -126,11 +126,12 @@ async fn generate_with_llm(
           "type": "dialogue",
           "content": "这里有人吗？",
           "alternatives": [
-            {{ "content": "请问，这个位置……", "tone": "礼貌" }}
+            {{ "content": "请问，这个位置……有人吗？", "tone": "礼貌" }},
+            {{ "content": "呃，打扰了——这里有人坐吗？", "tone": "犹豫" }}
           ],
           "selected": 0,
           "speaker": "char_002",
-          "emotion": "平淡中带着一丝期待"
+          "emotion": "平淡中带有期待"
         }}
       ]
     }}
@@ -149,6 +150,11 @@ async fn generate_with_llm(
 6. **地点必须具体可感**：写出实际空间特征和环境氛围
 7. **对话必须是角色会说的话**：符合人物性格、推动情节发展、包含潜台词
 8. **动作描写要有画面感**：包含感官细节，能直接指导拍摄
+9. **备选方案（alternatives）规则**：
+   - 对话/独白节拍必须提供 2~3 个备选方案，每个有不同 tone（语气标签）
+   - 动作节拍至少提供 1 个备选方案
+   - tone 取值：礼貌/犹豫/激动/冷淡/温柔/愤怒/文艺/口语化/正式
+   - ❌ "alternatives": []   ✅ "alternatives": [{{"content":"不同措辞", "tone":"语气"}}]
 
 {}
 
