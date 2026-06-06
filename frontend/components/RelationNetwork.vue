@@ -150,13 +150,13 @@ function truncateText(text: string, maxLen: number): string {
   return text.length > maxLen ? text.slice(0, maxLen) + '…' : text
 }
 
-// 根据亲密度/信任度推断关系类型描述
+// 根据亲密度/信任度推断关系类型描述（截断到6字符防止溢出）
 function inferRelationLabel(edge: any): string {
-  // 优先使用后端提供的 relation_type 标签
-  if (edge.relation_type) return edge.relation_type
-  // 其次使用 description
-  if (edge.description) return edge.description
-  if (edge.label && edge.label !== '关联') return edge.label
+  // 优先使用后端提供的 relation_type 标签（通常较短）
+  if (edge.relation_type) return truncateText(edge.relation_type, 6)
+  // 其次使用 description（可能较长，必须截断）
+  if (edge.description) return truncateText(edge.description, 6)
+  if (edge.label && edge.label !== '关联') return truncateText(edge.label, 6)
 
   const val = edge.value || 0
   const trust = edge.trust ?? val
@@ -215,7 +215,13 @@ function getEdgeVisualStyle(edge: any): { color: string; type?: string; opacity:
   }
 }
 
-/** 检测双向关系并合并处理 */
+/** 检测双向关系并合并处理
+ *
+ * 三种情况：
+ * 1. 同关系类型(A↔B都是"好友") → 单条双向连线 + 居中标签
+ * 2. 异关系类型(A→B"暗恋", B→A"普通") → 两条独立弧线(±curveness)，各带箭头和独立标签
+ * 3. 单向关系(A→B"暗恋") → 单条单向箭头线 + 标签
+ */
 function buildProcessedEdges() {
   const rawEdges = graphStore.relationEdges
   const processed: any[] = []
@@ -231,7 +237,7 @@ function buildProcessedEdges() {
     )
 
     if (reverseIdx >= 0 && !paired.has(pairKey)) {
-      // 双向关系存在
+      // ===== 双向关系存在 =====
       const rev = rawEdges[reverseIdx]
       paired.add(pairKey)
 
@@ -239,7 +245,7 @@ function buildProcessedEdges() {
       const labelB = inferRelationLabel(rev)
 
       if (labelA === labelB) {
-        // 同关系类型 → 单条双向连线 + 居中标签
+        // ---- 情况1: 同关系类型 → 单条双向连线 ----
         const style = getEdgeVisualStyle(e)
         processed.push({
           source: e.source,
@@ -260,13 +266,20 @@ function buildProcessedEdges() {
             fontSize: 9,
             color: isOppositional(e) ? '#fca5a5' : '#c4b5fd',
             position: 'middle',
+            // 半透明背景确保文字在彩色连线上清晰可读
+            backgroundColor: 'rgba(15, 23, 42, 0.8)',
+            borderColor: 'transparent',
+            borderRadius: 3,
+            padding: [2, 5],
           },
           _direction: 'bidirectional',
         })
       } else {
-        // 异关系类型 → 两条独立弧线，明显分开显示不同关系
+        // ---- 情况2: 异关系类型 → 两条独立弧线，各自带箭头和标签 ----
         const styleA = getEdgeVisualStyle(e)
         const styleB = getEdgeVisualStyle(rev)
+
+        // 弧线A: source → target，向上弯曲(curveness > 0)
         processed.push({
           source: e.source,
           target: e.target,
@@ -276,19 +289,27 @@ function buildProcessedEdges() {
             width: getEdgeWidth(e.value),
             type: styleA.type || 'solid',
             opacity: styleA.opacity,
-            curveness: 0.35, // 向上弯曲（增大弧度使两条线明显分开）
+            curveness: 0.35,
           },
-          symbol: ['none', 'arrow'],
-          symbolSize: [0, 7],
+          symbol: ['none', 'arrow'],       // 仅末端有箭头
+          symbolSize: [0, 8],
           label: {
             show: true,
             formatter: labelA,
             fontSize: 9,
             color: isOppositional(e) ? '#fca5a5' : '#94a3b8',
             position: 'middle',
+            // 标签向上偏移（沿曲线法向方向），避免与另一条弧的标签重叠
+            distance: [0, -12],
+            backgroundColor: 'rgba(15, 23, 42, 0.8)',
+            borderColor: 'transparent',
+            borderRadius: 3,
+            padding: [2, 5],
           },
           _direction: 'directed',
         })
+
+        // 弧线B: target → source（反向），向下弯曲(curveness < 0)
         processed.push({
           source: rev.source,
           target: rev.target,
@@ -298,22 +319,28 @@ function buildProcessedEdges() {
             width: getEdgeWidth(rev.value),
             type: styleB.type || 'solid',
             opacity: styleB.opacity,
-            curveness: -0.35, // 向下弯曲（相反方向，增大弧度）
+            curveness: -0.35,
           },
-          symbol: ['none', 'arrow'],
-          symbolSize: [0, 7],
+          symbol: ['none', 'arrow'],       // 仅末端有箭头
+          symbolSize: [0, 8],
           label: {
             show: true,
             formatter: labelB,
             fontSize: 9,
             color: isOppositional(rev) ? '#fca5a5' : '#94a3b8',
             position: 'middle',
+            // 标签向下偏移（与弧线A标签错开）
+            distance: [0, 12],
+            backgroundColor: 'rgba(15, 23, 42, 0.8)',
+            borderColor: 'transparent',
+            borderRadius: 3,
+            padding: [2, 5],
           },
           _direction: 'directed',
         })
       }
     } else if (!paired.has(pairKey)) {
-      // 单向关系 → 带箭头的直线
+      // ---- 情况3: 单向关系 → 带箭头的直线 ----
       const label = inferRelationLabel(e)
       const style = getEdgeVisualStyle(e)
       processed.push({
@@ -330,12 +357,16 @@ function buildProcessedEdges() {
         symbol: ['none', 'arrow'],
         symbolSize: [0, 8],
         label: {
-          show: true,
-          formatter: label,
-          fontSize: 9,
-          color: isOppositional(e) ? '#fca5a5' : '#94a3b8',
-          position: 'middle',
-        },
+            show: true,
+            formatter: label,
+            fontSize: 9,
+            color: isOppositional(e) ? '#fca5a5' : '#94a3b8',
+            position: 'middle',
+            backgroundColor: 'rgba(15, 23, 42, 0.8)',
+            borderColor: 'transparent',
+            borderRadius: 3,
+            padding: [2, 5],
+          },
         _direction: 'directed',
       })
     }

@@ -3,9 +3,13 @@ pub fn safe_truncate(s: &str, max_bytes: usize) -> &str {
     if s.len() <= max_bytes {
         return s;
     }
-    // 在 max_bytes 范围内找到最后一个字符边界
-    match s[..max_bytes].char_indices().last() {
+    // 在完整字符串上遍历字符边界，找到最后一个 <= max_bytes 的位置
+    // 避免 s[..max_bytes] 切片（当 max_bytes 落在多字节字符中间时会 panic）
+    match s.char_indices()
+        .take_while(|(i, _)| *i <= max_bytes)
+        .last()
+    {
         Some((end, _)) => &s[..end],
-        None => "", // 空字符串或 max_bytes == 0
+        None => "",
     }
 }
