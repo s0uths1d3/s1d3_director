@@ -336,6 +336,32 @@ pub async fn copilot_suggest_handler(
     }
 }
 
+/// AI 重生成（节拍/场景）
+pub async fn regenerate_handler(
+    State(state): State<AppState>,
+    headers: axum::http::HeaderMap,
+    Json(body): Json<co_pilot::RegenerateRequest>,
+) -> Response {
+    let api_key = get_api_key(&state, &headers);
+    let base_url = get_base_url(&state, &headers);
+
+    tracing::info!(
+        target = body.target,
+        scene_id = body.scene_id,
+        beat_index = ?body.beat_index,
+        instruction_len = body.instruction.len(),
+        "AI 重生成请求"
+    );
+
+    match co_pilot::regenerate(&body, &api_key, &base_url).await {
+        Ok(response) => {
+            tracing::info!(content_len = response.content.len(), "AI 重生成成功");
+            Json(response).into_response()
+        }
+        Err(e) => error_response(StatusCode::INTERNAL_SERVER_ERROR, &e),
+    }
+}
+
 // ==================== 内部辅助函数 =================/// 提取角色（LLM 或模拟模式）
 async fn extract_characters_mock_or_llm(
     text: &str,

@@ -186,3 +186,188 @@ fn mock_suggestions() -> Vec<Suggestion> {
         },
     ]
 }
+
+// ==================== AI 重生成 ====================
+
+/// 重生成请求
+#[derive(Debug, Deserialize)]
+pub struct RegenerateRequest {
+    /// 目标类型：'beat'（单个节拍）或 'scene'（整场场景）
+    pub target: String,
+    /// 场景 ID
+    pub scene_id: i32,
+    /// 节拍索引（target=beat 时必填）
+    #[serde(default)]
+    pub beat_index: Option<usize>,
+    /// 用户修改意图/指令
+    pub instruction: String,
+    /// 当前节拍原始内容（target=beat 时）
+    #[serde(default)]
+    pub current_content: Option<String>,
+    /// 完整剧本 YAML（用于上下文感知）
+    #[serde(default)]
+    pub full_script_yaml: Option<String>,
+}
+
+/// 重生成响应
+#[derive(Debug, Serialize)]
+pub struct RegenerateResponse {
+    /// 生成的新内容
+    pub content: String,
+    /// 额外的备选方案
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub alternatives: Option<Vec<BeatAlternative>>,
+    /// 如果是整场重生成，返回所有节拍
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub beats: Option<serde_json::Value>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct BeatAlternative {
+    pub content: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tone: Option<String>,
+}
+
+const REGENERATE_SYSTEM_PROMPT: &str =
+    "你是一名专业编剧。用户要求你根据其修改意图重新生成剧本中的某个内容。\n\
+     要求：\n\
+     1. 必须保持与原剧本的角色设定、情节发展、世界观一致\n\
+     2. 保持角色语气和性格特征不变\n\
+     3. 生成的内容应自然衔接前后文\n\
+     4. 返回 JSON 格式结果\n\n\
+     输出格式：\n\
+     {\"content\": \"主要生成的内容\", \"alternatives\": [{\"content\": \"备选1\", \"tone\": \"语气描述\"}]}";
+
+/// AI 重生成（针对单个节拍或整场场景）
+pub async fn regenerate(
+    req: &RegenerateRequest,
+    api_key: &str,
+    base_url: &str,
+) -> Result<RegenerateResponse, String> {
+    // 模拟模式
+    if api_key.is_empty() || api_key == "mock" {
+        return Ok(mock_regenerate_response(req));
+    }
+
+    // 构建上下文信息
+    let mut context_parts = Vec::new();
+    context_parts.push(format!("目标类型: {}", req.target));
+    context_parts.push(format!("场景 ID: {}", req.scene_id));
+    if let Some(bi) = req.beat_index {
+        context_parts.push(format!("节拍索引: {}", bi));
+    }
+    if let Some(content) = &req.current_content {
+        context_parts.push(format!("当前内容:\n{}", content));
+    }
+
+    // 截取完整剧本作为上下文（限制长度避免超 token）
+    if let Some(yaml) = &req.full_script_yaml {
+        let preview_len = yaml.len().min(4000);
+        context_parts.push(format!(
+            "\n完整剧本上下文（前{}字）：\n{}",
+            preview_len,
+            &yaml[..preview_len]
+        ));
+    }
+
+    let user_prompt = format!(
+        "{}\n\n修改意图: {}",
+        context_parts.join("\n"),
+        req.instruction
+    );
+
+    let response = call_deepseek(
+        &user_prompt,
+        api_key,
+        base_url,
+        Some(REGENERATE_SYSTEM_PROMPT),
+        true, // JSON 模式
+    )
+    .await?;
+
+    // 解析 AI 返回的 JSON
+    match serde_json::from_str::<serde_json::Value>(&response) {
+        Ok(json) => {
+            let content = json.get("content")
+                .and_then(|v| v.as_str())
+                .unwrap_or(&response)
+                .to_string();
+
+            // 解析 alternatives
+            let alternatives = json.get("alternatives").and_then(|arr| {
+                arr.as_array().map(|items| {
+                    items.iter().filter_map(|item| {
+                        Some(BeatAlternative {
+                            content: item.get("content")?.as_str()?.to_string(),
+                            tone: item.get("tone").and_then(|v| v.as_str()).map(String::from),
+                        })
+                    }).collect::<Vec<_>>()
+                })
+            });
+
+            Ok(RegenerateResponse {
+                content,
+                alternatives,
+                beats: None,
+            })
+        }
+        Err(_) => {
+            // JSON 解析失败时直接使用原文
+            tracing::warn!("AI 重生成返回的不是有效 JSON，使用原始文本");
+            Ok(RegenerateResponse {
+                content: response,
+                alternatives: None,
+                beats: None,
+            })
+        }
+    }
+}
+
+fn mock_regenerate_response(req: &RegenerateRequest) -> RegenerateResponse {
+    if req.target == "scene" {
+        RegenerateResponse {
+            content: format!("已重新生成场景 {} 的全部内容（模拟模式）", req.scene_id),
+            alternatives: None,
+            beats: Some(serde_json::json!([
+                {
+                    "type": "action",
+                    "content": format!("[AI重生成] 场景{} - 动作描述（模拟）", req.scene_id),
+                    "alternatives": [],
+                    "selected": 0
+                },
+                {
+                    "type": "dialogue",
+                    "content": "[AI重生成] 对白内容（模拟）",
+                    "alternatives": [],
+                    "selected": 0,
+                    "speaker": "角色A"
+                },
+                {
+                    "type": "action",
+                    "content": "[AI重生成] 结尾动作（模拟）",
+                    "alternatives": [],
+                    "selected": 0
+                }
+            ])),
+        }
+    } else {
+        RegenerateResponse {
+            content: format!(
+                "[AI重生成] 根据「{}」的要求重新生成了此节拍内容（模拟模式）",
+                req.instruction
+            ),
+            alternatives: Some(vec![
+                BeatAlternative {
+                    content: "[备选方案A] 另一种表达方式（模拟）".to_string(),
+                    tone: Some("正式".to_string()),
+                },
+                BeatAlternative {
+                    content: "[备选方案B] 更口语化的版本（模拟）".to_string(),
+                    tone: Some("轻松".to_string()),
+                },
+            ]),
+            beats: None,
+        }
+    }
+}

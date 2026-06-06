@@ -85,6 +85,7 @@ async fn main() {
                 // AI 副编剧
                 .route("/api/co-pilot/chat", post(handlers::copilot_chat_handler))
                 .route("/api/co-pilot/suggest", post(handlers::copilot_suggest_handler))
+                .route("/api/co-pilot/regenerate", post(handlers::regenerate_handler))
                 // 项目管理 CRUD
                 .route("/api/projects", get(handlers::list_projects))
                 .route("/api/projects", post(handlers::create_project))
@@ -126,6 +127,7 @@ async fn main() {
                 .route("/api/relation/update", post(handlers::update_relation))
                 .route("/api/co-pilot/chat", post(handlers::copilot_chat_handler))
                 .route("/api/co-pilot/suggest", post(handlers::copilot_suggest_handler))
+                .route("/api/co-pilot/regenerate", post(handlers::regenerate_handler))
                 // 项目管理 CRUD
                 .route("/api/projects", get(handlers::list_projects))
                 .route("/api/projects", post(handlers::create_project))

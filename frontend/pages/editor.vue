@@ -113,29 +113,99 @@
       <!-- 中间区域：场景卡片列表（自适应宽度） -->
       <main class="flex-1 overflow-auto p-4 space-y-4">
         <template v-if="loadStatus === 'loaded'" v-for="scene in scriptStore.scenes" :key="scene.id">
-          <!-- 场景头部 -->
+          <!-- 场景头部（可编辑） -->
           <div class="bg-slate-800/50 backdrop-blur-sm rounded-xl border border-slate-700/50 overflow-hidden">
-            <div class="px-4 py-3 border-b border-slate-700/30 flex items-center justify-between">
-              <div class="flex items-center gap-3">
-                <span class="text-xs font-mono text-indigo-400">SCENE {{ scene.id }}</span>
-                <span class="text-sm font-medium text-white">{{ scene.location }}</span>
-                <span v-if="scene.time" class="text-xs text-slate-500">· {{ scene.time }}</span>
-                <span class="px-1.5 py-0.5 text-xs rounded bg-slate-700/50 text-slate-400">
-                  情绪 {{ scene.emotion_intensity.toFixed(1) }}
-                </span>
+            <!-- 场景标题栏 -->
+            <div class="px-4 py-3 border-b border-slate-700/30">
+              <div class="flex items-center justify-between mb-2">
+                <div class="flex items-center gap-3">
+                  <span class="text-xs font-mono text-indigo-400">SCENE {{ scene.id }}</span>
+                  <!-- 场景地点（可编辑） -->
+                  <input
+                    :value="scene.location"
+                    @input="(e: Event) => updateSceneField(scene.id, 'location', (e.target as HTMLInputElement).value)"
+                    class="text-sm font-medium bg-transparent text-white border-b border-slate-600/50 focus:border-indigo-400 outline-none px-1 min-w-[120px] placeholder:text-slate-600"
+                    placeholder="场景地点"
+                    title="点击编辑场景地点"
+                  />
+                  <span v-if="scene.time" class="text-xs text-slate-500">·</span>
+                  <!-- 场景时间（可编辑） -->
+                  <input
+                    v-if="scene.time || editingSceneTime === scene.id"
+                    :value="scene.time ?? ''"
+                    @blur="editingSceneTime = null; if (!(scene as any).time) (scene as any).time = undefined"
+                    @input="(e: Event) => updateSceneField(scene.id, 'time', (e.target as HTMLInputElement).value)"
+                    class="text-xs bg-transparent text-slate-400 border-b border-slate-600/50 focus:border-indigo-400 outline-none px-1 w-24 min-w-0 placeholder:text-slate-600"
+                    placeholder="时间"
+                    title="点击编辑时间"
+                  />
+                  <button
+                    v-else-if="!scene.time"
+                    @click="editingSceneTime = scene.id"
+                    class="text-xs text-slate-600 hover:text-slate-400 px-1 rounded hover:bg-slate-700/30 transition-colors"
+                  >+ 时间</button>
+                </div>
+
+                <!-- 右侧操作 -->
+                <div class="flex items-center gap-2">
+                  <!-- AI 重生成整场按钮 -->
+                  <button
+                    v-if="!scriptStore.isRegenerating(String(scene.id))"
+                    @click="handleAIRegenerateScene(scene.id)"
+                    class="flex items-center gap-1 px-2 py-1 text-[10px] rounded-md text-emerald-400/70 hover:text-emerald-300 hover:bg-emerald-500/10 transition-all"
+                    title="AI 重生成整场内容"
+                  >
+                    <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                    </svg>
+                    AI 重生成
+                  </button>
+                  <div v-else class="flex items-center gap-1 px-2 py-1 text-[10px] rounded-md bg-emerald-500/10 text-emerald-400">
+                    <svg class="animate-spin w-3 h-3" fill="none" viewBox="0 0 24 24">
+                      <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                      <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                    </svg>
+                    AI 生成中...
+                  </div>
+
+                  <!-- 删除场景 -->
+                  <button
+                    @click="handleDeleteScene(scene.id)"
+                    class="p-1 rounded text-slate-600 hover:text-red-400 hover:bg-red-500/10 transition-all opacity-0 group-scene:hover:opacity-100"
+                    title="删除此场景"
+                  >
+                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
+                  </button>
+                </div>
               </div>
-              <div v-if="scene.media_hints" class="flex items-center gap-2 text-xs text-slate-500">
-                <span v-if="scene.media_hints.camera" title="镜头提示">
-                  📷 {{ scene.media_hints.camera }}
-                </span>
-                <span v-if="scene.media_hints.music" title="音乐提示">
-                  🎵 {{ scene.media_hints.music }}
-                </span>
+
+              <!-- 第二行：情绪滑块 + media_hints -->
+              <div class="flex items-center gap-4">
+                <!-- 情绪强度滑块 -->
+                <div class="flex items-center gap-2 flex-1 max-w-xs">
+                  <span class="text-[10px] text-slate-500 whitespace-nowrap">情绪强度</span>
+                  <input
+                    type="range"
+                    min="0"
+                    max="10"
+                    step="0.1"
+                    :value="scene.emotion_intensity"
+                    @input="(e: Event) => updateSceneField(scene.id, 'emotion_intensity', parseFloat((e.target as HTMLInputElement).value))"
+                    class="flex-1 h-1 appearance-none bg-slate-700 rounded-full cursor-pointer accent-indigo-500 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-indigo-400 [&::-webkit-slider-thumb]:shadow-[0_0_6px_rgba(129,140,248,0.5)]"
+                  />
+                  <span class="text-[10px] font-mono text-slate-400 w-6 text-right">{{ scene.emotion_intensity.toFixed(1) }}</span>
+                </div>
+
+                <!-- 媒体提示 -->
+                <div v-if="scene.media_hints" class="flex items-center gap-2 text-xs text-slate-500 ml-auto">
+                  <span v-if="scene.media_hints.camera" title="镜头提示">📷 {{ scene.media_hints.camera }}</span>
+                  <span v-if="scene.media_hints.music" title="音乐提示">🎵 {{ scene.media_hints.music }}</span>
+                </div>
               </div>
             </div>
 
             <!-- Beat 卡片列表 -->
-            <div class="divide-y divide-slate-700/20">
+            <div class="divide-y divide-slate-700/20 group-scene">
               <BeatCard
                 v-for="(beat, idx) in scene.beats"
                 :key="idx"
@@ -143,9 +213,17 @@
                 :beat-index="idx"
                 :beat="beat"
                 :is-active="scriptStore.currentSceneId === scene.id && scriptStore.currentBeatIndex === idx"
+                :is-regenerating="scriptStore.isRegenerating(`${scene.id}:${idx}`)"
                 @update-content="(content) => handleUpdateBeat(scene.id, idx, content)"
+                @update-type="(newType) => handleUpdateBeatType(scene.id, idx, newType)"
+                @update-speaker="(speaker) => handleUpdateSpeaker(scene.id, idx, speaker)"
+                @update-emotion="(emotion) => handleUpdateEmotion(scene.id, idx, emotion)"
                 @select-alt="(altIdx) => handleSelectAlt(scene.id, idx, altIdx)"
                 @delete="handleDeleteBeat(scene.id, idx)"
+                @ai-regenerate="() => handleAIRegenerateBeat(scene.id, idx)"
+                @move-up="() => scriptStore.moveBeat(scene.id, idx, 'up')"
+                @move-down="() => scriptStore.moveBeat(scene.id, idx, 'down')"
+                @toggle-history="() => showHistoryPanel(scene.id, idx)"
               />
 
               <!-- 添加节拍按钮 -->
@@ -161,6 +239,89 @@
             </div>
           </div>
         </template>
+
+        <!-- 修改历史面板（覆盖层） -->
+        <Teleport to="body">
+          <div
+            v-if="historyPanelVisible"
+            class="fixed inset-0 z-[100] flex items-center justify-center"
+            @click.self="historyPanelVisible = false"
+          >
+            <!-- 遮罩 -->
+            <div class="absolute inset-0 bg-black/50 backdrop-blur-sm" />
+
+            <!-- 面板 -->
+            <div class="relative z-10 w-full max-w-2xl max-h-[70vh] bg-slate-800 rounded-xl border border-slate-700/50 shadow-xl overflow-hidden">
+              <!-- 标题栏 -->
+              <div class="px-5 py-3 border-b border-slate-700/30 flex items-center justify-between">
+                <div>
+                  <h3 class="text-sm font-medium text-white">修改历史</h3>
+                  <p v-if="historyTarget" class="text-xs text-slate-500 mt-0.5">
+                    场景 {{ historyTarget.sceneId }} · 节拍 {{ historyTarget.beatIndex + 1 }}
+                  </p>
+                </div>
+                <button
+                  @click="historyPanelVisible = false"
+                  class="p-1.5 rounded-lg text-slate-500 hover:text-slate-300 hover:bg-slate-700/50 transition-colors"
+                >
+                  <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+                </button>
+              </div>
+
+              <!-- 历史记录列表 -->
+              <div class="p-5 overflow-y-auto max-h-[calc(70vh-60px)] space-y-3">
+                <template v-if="historyRecords.length > 0">
+                  <div
+                    v-for="(record, idx) in historyRecords"
+                    :key="idx"
+                    class="rounded-lg border p-3"
+                    :class="{
+                      'border-emerald-500/30 bg-emerald-500/5': record.source === 'ai',
+                      'border-indigo-500/30 bg-indigo-500/5': record.source === 'alternative',
+                      'border-slate-700/50 bg-slate-800/50': record.source === 'manual',
+                    }"
+                  >
+                    <div class="flex items-center gap-2 mb-2">
+                      <span
+                        class="text-[10px] font-medium px-1.5 py-0.5 rounded"
+                        :class="{
+                          'bg-emerald-500/15 text-emerald-300': record.source === 'ai',
+                          'bg-indigo-500/15 text-indigo-300': record.source === 'alternative',
+                          'bg-slate-700 text-slate-400': record.source === 'manual',
+                        }"
+                      >
+                        {{ record.source === 'ai' ? 'AI 重生成' : record.source === 'alternative' ? '选择备选' : '手动修改' }}
+                      </span>
+                      <span class="text-[10px] text-slate-500">{{ formatTime(record.timestamp) }}</span>
+                      <span class="text-[10px] text-slate-600 ml-auto">字段: {{ record.field }}</span>
+                    </div>
+
+                    <!-- 对比视图 -->
+                    <div class="space-y-2 text-xs">
+                      <div v-if="record.oldValue && record.oldValue !== '[已删除]'">
+                        <span class="text-red-400/80 line-through break-all">{{ truncate(record.oldValue, 200) }}</span>
+                      </div>
+                      <div>
+                        <span class="text-emerald-300 break-all">{{ truncate(record.newValue, 200) }}</span>
+                      </div>
+                    </div>
+                  </div>
+                </template>
+                <div v-else class="text-center py-8 text-slate-500 text-sm">
+                  暂无修改记录
+                </div>
+              </div>
+
+              <!-- 底部操作 -->
+              <div class="px-5 py-3 border-t border-slate-700/30 flex justify-end">
+                <button
+                  @click="historyPanelVisible = false"
+                  class="px-4 py-1.5 text-xs rounded-lg bg-slate-700/60 hover:bg-slate-600/60 text-slate-300 transition-colors"
+                >关闭</button>
+              </div>
+            </div>
+          </div>
+        </Teleport>
 
         <!-- 状态展示区：加载中 / 已加载 / 空状态 / 错误 -->
         <div v-if="loadStatus === 'loading'" class="flex flex-col items-center justify-center h-full text-slate-400">
@@ -418,6 +579,20 @@ provide('scriptUpdate', scriptUpdateEvent)
 
 function emitScriptUpdate() {
   scriptUpdateEvent.value++
+}
+
+// ==================== 工具函数 ====================
+
+/** 格式化时间戳 */
+function formatTime(timestamp: number): string {
+  const d = new Date(timestamp)
+  return `${d.getHours().toString().padStart(2, '0')}:${d.getMinutes().toString().padStart(2, '0')}:${d.getSeconds().toString().padStart(2, '0')}`
+}
+
+/** 截断文本 */
+function truncate(text: string, maxLen: number): string {
+  if (text.length <= maxLen) return text
+  return text.slice(0, maxLen) + '...'
 }
 
 // ==================== YAML 初始化（公共逻辑） ====================
@@ -734,5 +909,142 @@ function handleAddBeat(sceneId: number) {
     selected: 0,
   })
   emitScriptUpdate()
+}
+
+// ==================== 场景编辑 ====================
+const editingSceneTime = ref<number | null>(null)
+
+function updateSceneField(sceneId: number, field: 'location' | 'time' | 'emotion_intensity', value: any) {
+  scriptStore.updateSceneInfo(sceneId, { [field]: value } as any)
+  emitScriptUpdate()
+}
+
+async function handleDeleteScene(sceneId: number) {
+  if (await dialog.confirm('确定删除整个场景？该场景下所有节拍将被删除。', { variant: 'danger' })) {
+    scriptStore.removeScene(sceneId)
+    emitScriptUpdate()
+  }
+}
+
+// ==================== 节拍增强编辑 ====================
+
+function handleUpdateBeatType(sceneId: number, beatIndex: number, newType: string) {
+  scriptStore.updateBeatType(sceneId, beatIndex, newType)
+  emitScriptUpdate()
+}
+
+function handleUpdateSpeaker(sceneId: number, beatIndex: number, speaker: string) {
+  scriptStore.updateBeatSpeaker(sceneId, beatIndex, speaker)
+  emitScriptUpdate()
+}
+
+function handleUpdateEmotion(sceneId: number, beatIndex: number, emotion: string) {
+  scriptStore.updateBeatEmotion(sceneId, beatIndex, emotion)
+  emitScriptUpdate()
+}
+
+// ==================== AI 重生成 ====================
+
+/** AI 重生成单个节拍 */
+async function handleAIRegenerateBeat(sceneId: number, beatIndex: number) {
+  const scene = scriptStore.scenes.find(s => s.id === sceneId)
+  if (!scene || !scene.beats[beatIndex]) return
+  const beat = scene.beats[beatIndex]
+
+  // 弹出输入框让用户输入修改意图
+  const instruction = await dialog.prompt(
+    `请描述你希望如何修改此【${beat.type === 'action' ? '动作' : beat.type === 'dialogue' ? '对白' : beat.type === 'monologue' ? '独白' : '括号说明'}】内容：`,
+    { title: 'AI 重生成', placeholder: '例如：让对话更自然、增加紧张感、改变语气...' }
+  )
+  if (!instruction) return // 用户取消
+
+  const regenKey = `${sceneId}:${beatIndex}`
+  scriptStore.setRegenerating(regenKey, true)
+
+  try {
+    const res = await fetch('/api/co-pilot/regenerate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        target: 'beat',
+        scene_id: sceneId,
+        beat_index: beatIndex,
+        instruction,
+        current_content: beat.content,
+        full_script_yaml: scriptStore.yamlText,
+      }),
+    })
+
+    if (!res.ok) throw new Error(`HTTP ${res.status}`)
+    const data = await res.json()
+
+    scriptStore.applyAIRegeneration(
+      sceneId,
+      beatIndex,
+      data.content,
+      data.alternatives?.map((a: any) => ({ content: a.content, tone: a.tone }))
+    )
+    emitScriptUpdate()
+
+    await dialog.alert('AI 已重新生成内容，原版本已保存为备选方案。', { variant: 'success', title: '重生成完成' })
+  } catch (e: any) {
+    await dialog.alert(`AI 重生成失败：${e.message}`, { variant: 'danger', title: '错误' })
+  } finally {
+    scriptStore.setRegenerating(regenKey, false)
+  }
+}
+
+/** AI 重生成整场场景 */
+async function handleAIRegenerateScene(sceneId: number) {
+  const instruction = await dialog.prompt(
+    '请描述你希望如何重写整个场景的内容：',
+    { title: 'AI 重生成场景', placeholder: '例如：调整整体节奏、增强冲突感、改变氛围...' }
+  )
+  if (!instruction) return
+
+  scriptStore.setRegenerating(String(sceneId), true)
+
+  try {
+    const res = await fetch('/api/co-pilot/regenerate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        target: 'scene',
+        scene_id: sceneId,
+        instruction,
+        full_script_yaml: scriptStore.yamlText,
+      }),
+    })
+
+    if (!res.ok) throw new Error(`HTTP ${res.status}`)
+    const data = await res.json()
+
+    // 如果返回了 beats 数组，替换整场
+    if (data.beats && Array.isArray(data.beats)) {
+      scriptStore.applyAISceneRegeneration(sceneId, data.beats as any[])
+    }
+    emitScriptUpdate()
+
+    await dialog.alert('场景已由 AI 重新生成。', { variant: 'success', title: '重生成完成' })
+  } catch (e: any) {
+    await dialog.alert(`AI 重生成失败：${e.message}`, { variant: 'danger', title: '错误' })
+  } finally {
+    scriptStore.setRegenerating(String(sceneId), false)
+  }
+}
+
+// ==================== 修改历史面板 ====================
+
+const historyPanelVisible = ref(false)
+const historyTarget = ref<{ sceneId: number; beatIndex: number } | null>(null)
+
+const historyRecords = computed(() => {
+  if (!historyTarget.value) return []
+  return scriptStore.getTargetHistory(`scene:${historyTarget.value.sceneId}:beat:${historyTarget.value.beatIndex}`)
+})
+
+function showHistoryPanel(sceneId: number, beatIndex: number) {
+  historyTarget.value = { sceneId, beatIndex }
+  historyPanelVisible.value = true
 }
 </script>
