@@ -264,7 +264,7 @@ function buildProcessedEdges() {
           _direction: 'bidirectional',
         })
       } else {
-        // 异关系类型 → 两条独立弧线，不同弯曲方向
+        // 异关系类型 → 两条独立弧线，明显分开显示不同关系
         const styleA = getEdgeVisualStyle(e)
         const styleB = getEdgeVisualStyle(rev)
         processed.push({
@@ -276,7 +276,7 @@ function buildProcessedEdges() {
             width: getEdgeWidth(e.value),
             type: styleA.type || 'solid',
             opacity: styleA.opacity,
-            curveness: 0.2, // 向上弯曲
+            curveness: 0.35, // 向上弯曲（增大弧度使两条线明显分开）
           },
           symbol: ['none', 'arrow'],
           symbolSize: [0, 7],
@@ -286,7 +286,6 @@ function buildProcessedEdges() {
             fontSize: 9,
             color: isOppositional(e) ? '#fca5a5' : '#94a3b8',
             position: 'middle',
-            distance: [15, -5],
           },
           _direction: 'directed',
         })
@@ -299,7 +298,7 @@ function buildProcessedEdges() {
             width: getEdgeWidth(rev.value),
             type: styleB.type || 'solid',
             opacity: styleB.opacity,
-            curveness: -0.2, // 向下弯曲（相反方向）
+            curveness: -0.35, // 向下弯曲（相反方向，增大弧度）
           },
           symbol: ['none', 'arrow'],
           symbolSize: [0, 7],
@@ -309,7 +308,6 @@ function buildProcessedEdges() {
             fontSize: 9,
             color: isOppositional(rev) ? '#fca5a5' : '#94a3b8',
             position: 'middle',
-            distance: [15, 5],
           },
           _direction: 'directed',
         })

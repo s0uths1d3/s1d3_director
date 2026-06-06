@@ -121,12 +121,6 @@ const chartOption = computed(() => {
         fontSize: 9,
         color: '#94a3b8',
         position: 'middle',
-        distance: 0,
-        // 添加半透明背景，确保文字在连线上可读
-        backgroundColor: 'rgba(15, 23, 42, 0.75)',
-        borderColor: 'transparent',
-        borderRadius: 3,
-        padding: [2, 4],
       },
     }
   })
