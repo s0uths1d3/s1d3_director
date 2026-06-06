@@ -190,7 +190,7 @@ async function sendQuickAction(action: typeof quickActions[number]) {
   await scrollToBottom()
 
   try {
-    copilotStore.isLoading.value = true
+    copilotStore.isLoading = true
 
     // 获取当前剧本 YAML
     const scriptYaml = typeof window !== 'undefined'
@@ -238,7 +238,7 @@ async function sendQuickAction(action: typeof quickActions[number]) {
     console.error('快捷操作失败:', error)
     copilotStore.addAssistantMessage(`抱歉，操作失败: ${error.message}`)
   } finally {
-    copilotStore.isLoading.value = false
+    copilotStore.isLoading = false
     await scrollToBottom()
   }
 }
@@ -246,7 +246,7 @@ async function sendQuickAction(action: typeof quickActions[number]) {
 // 调用聊天 API
 async function callApi(userMessage: string) {
   try {
-    copilotStore.isLoading.value = true
+    copilotStore.isLoading = true
 
     // 构建消息数组：历史消息 + 当前用户消息
     const apiMessages = [
@@ -292,7 +292,7 @@ async function callApi(userMessage: string) {
     console.error('API 调用失败:', error)
     copilotStore.addAssistantMessage(`抱歉，服务暂时不可用: ${error.message}`)
   } finally {
-    copilotStore.isLoading.value = false
+    copilotStore.isLoading = false
     await scrollToBottom()
   }
 }
