@@ -735,6 +735,25 @@
               ></textarea>
             </div>
 
+            <div>
+              <label class="block text-sm text-slate-300 mb-1.5">项目状态</label>
+              <div class="flex gap-2 flex-wrap">
+                <button
+                  v-for="opt in projectStatusOptions"
+                  :key="opt.value"
+                  @click="saveMetaForm.status = opt.value"
+                  :class="[
+                    'px-3 py-1.5 rounded-md text-xs font-medium transition-all border',
+                    saveMetaForm.status === opt.value
+                      ? `${opt.bg} ${opt.color} border-current`
+                      : 'bg-slate-900/30 text-slate-500 border-slate-700/50 hover:border-slate-600 hover:text-slate-300'
+                  ]"
+                >
+                  {{ opt.label }}
+                </button>
+              </div>
+            </div>
+
             <!-- 备份信息展示 -->
             <div v-if="backups.length > 0" class="rounded-lg bg-slate-900/60 border border-slate-700/40 p-3">
               <div class="flex items-center justify-between text-xs mb-2">
@@ -922,7 +941,16 @@ const saveMetaForm = ref({
   title: '',
   owner: '',
   description: '',
+  status: 'draft',
 })
+
+// 项目状态选项
+const projectStatusOptions = [
+  { value: 'draft', label: '草稿', color: 'text-slate-400', bg: 'bg-slate-500/20' },
+  { value: 'in_progress', label: '进行中', color: 'text-blue-400', bg: 'bg-blue-500/20' },
+  { value: 'reviewing', label: '审核中', color: 'text-yellow-400', bg: 'bg-yellow-500/20' },
+  { value: 'completed', label: '已完成', color: 'text-emerald-400', bg: 'bg-emerald-500/20' },
+]
 const isUpdatingProject = ref(false)
 
 // 保存为：另存为新项目弹窗
@@ -1084,14 +1112,81 @@ async function loadData() {
   const success = initFromYaml(rawYaml)
   loadStatus.value = success ? 'loaded' : (loadError.value ? 'error' : 'empty')
 
-  // 数据加载成功后启动自动备份定时器
+  // 数据加载成功后启动自动备份定时器，并自动保存（创建项目+剧本）
   if (success) {
     startAutoSave(() => serializeToYaml())
+    // 首次加载且无关联项目时 → 自动执行一次保存（相当于用户点了一次"保存"）
+    if (!currentProjectId.value && !currentScriptId.value) {
+      autoSaveAfterGeneration()
+    }
   }
 }
 
 function retryLoad() {
   loadData()
+}
+
+/**
+ * 生成剧本后自动保存：创建项目 + 保存剧本内容
+ * 相当于用户在编辑器中手动点了一次"保存"，静默执行不弹窗
+ */
+async function autoSaveAfterGeneration() {
+  const yamlContent = serializeToYaml()
+  if (!yamlContent) return
+
+  try {
+    // 1) 创建剧本记录
+    const scriptRes = await fetch('/api/scripts', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        title: scriptData.value?.metadata?.title || '未命名剧本',
+        style: scriptData.value?.metadata?.style || 'short_drama',
+        yaml_content: yamlContent,
+      }),
+    })
+    if (!scriptRes.ok) return // 后端不可用时静默跳过
+    const scriptDataRes = await scriptRes.json()
+    const newScriptId = scriptDataRes.id || scriptDataRes.script_id
+    currentScriptId.value = newScriptId
+
+    // 2) 创建项目并关联剧本
+    const styleMap: Record<string, string> = { short_drama: '短剧', film: '电影', stage: '舞台剧' }
+    const projTitle = scriptData.value?.metadata?.title || `${styleMap[scriptData.value?.metadata?.style || 'short_drama'] || '短剧'} - ${new Date().toLocaleString('zh-CN')}`
+    const projRes = await fetch('/api/projects', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        title: projTitle,
+        description: `${projTitle} - ${scriptStore.scenes.length} 场景`,
+        style: scriptData.value?.metadata?.style || 'short_drama',
+        status: 'draft',
+      }),
+    })
+    if (!projRes.ok) return
+    const project = await projRes.json()
+    currentProjectId.value = project.id
+
+    // 3) 关联剧本到项目（更新项目的 script_id）
+    await fetch(`/api/projects/${project.id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ script_id: newScriptId }),
+    }).catch(() => {})
+
+    // 4) 更新本地项目 store
+    projectStore.addProjectToLocal(project)
+
+    // 5) 同步 sessionStorage + 本地备份
+    yamlSource.value = yamlContent
+    sessionStorage.setItem('script_yaml', yamlContent)
+    createBackup(yamlContent, '自动保存')
+
+    console.log(`[自动保存] 项目已创建, project_id=${project.id}, script_id=${newScriptId}`)
+    showSaveFeedback('已自动保存')
+  } catch (e) {
+    console.warn('[自动保存] 失败，用户可稍后手动保存:', e)
+  }
 }
 
 // 初始化
@@ -1339,6 +1434,7 @@ async function showExistingProjectSaveDialog() {
         title: project.title || '',
         owner: project.owner || '',
         description: project.description || '',
+        status: project.status || 'draft',
       }
     }
   } catch { /* 使用默认值 */ }
@@ -1360,6 +1456,7 @@ async function confirmSaveMeta() {
         title: saveMetaForm.value.title || undefined,
         owner: saveMetaForm.value.owner || undefined,
         description: saveMetaForm.value.description || undefined,
+        status: saveMetaForm.value.status || undefined,
       }),
     })
 
