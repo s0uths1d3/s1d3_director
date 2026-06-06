@@ -73,7 +73,7 @@
     </div>
 
     <!-- 图例 -->
-    <div class="flex-shrink-0 px-2 py-1 text-[10px] text-slate-500 flex items-center gap-2 border-t border-slate-700/30">
+    <div class="flex-shrink-0 px-2 py-1 text-[10px] text-slate-500 flex items-center gap-2 border-t border-slate-700/30 flex-wrap">
       <span class="flex items-center gap-1">
         <span class="w-3 h-0.5 bg-gradient-to-r from-emerald-400 to-emerald-600 rounded"></span>高信任
       </span>
@@ -81,7 +81,18 @@
         <span class="w-3 h-0.5 bg-gradient-to-r from-yellow-400 to-yellow-600 rounded"></span>中等
       </span>
       <span class="flex items-center gap-1">
-        <span class="w-3 h-0.5 bg-gradient-to-r from-red-400 to-red-600 rounded"></span>低信任
+        <span class="w-3 h-0.5 bg-red-500/70 rounded" style="border-top: 2px dashed #ef4444"></span>对立
+      </span>
+      <span class="flex items-center gap-1">
+        <span class="w-3 h-0.5 bg-purple-400/85 rounded"></span>亲密
+      </span>
+      <span class="flex items-center gap-1 ml-1">
+        <svg class="w-3 h-3 text-slate-500" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14 5l7 7m0 0l-7 7m7-7H3"/></svg>
+        单向
+      </span>
+      <span class="flex items-center gap-1">
+        <svg class="w-4 h-3 text-purple-400" viewBox="0 0 24 16" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2 8h18M17 5l3 3-3 3M7 5L4 8l3 3"/></svg>
+        双向
       </span>
       <span v-if="graphStore.selectedCharacters.length" class="ml-auto text-purple-400">
         已选: {{ graphStore.selectedCharacters.join(' / ') }}
@@ -139,6 +150,201 @@ function truncateText(text: string, maxLen: number): string {
   return text.length > maxLen ? text.slice(0, maxLen) + '…' : text
 }
 
+// 根据亲密度/信任度推断关系类型描述
+function inferRelationLabel(edge: any): string {
+  // 优先使用后端提供的 relation_type 标签
+  if (edge.relation_type) return edge.relation_type
+  // 其次使用 description
+  if (edge.description) return edge.description
+  if (edge.label && edge.label !== '关联') return edge.label
+
+  const val = edge.value || 0
+  const trust = edge.trust ?? val
+  const intimacy = edge.intimacy ?? val
+
+  // 根据数值范围推断关系类型
+  if (intimacy > 0.75 && trust > 0.7) return '亲密'
+  if (intimacy > 0.6 && trust > 0.5) return '友好'
+  if (intimacy > 0.35 && intimacy <= 0.6) return '普通'
+  if (trust < 0.25) return '对立'
+  if (intimacy < 0.25) return '疏远'
+  return '关联'
+}
+
+/** 判断是否为对立/敌对关系（用于视觉区分） */
+function isOppositional(edge: any): boolean {
+  // 优先检查 relation_type 是否包含对立关键词
+  const label = inferRelationLabel(edge)
+  const oppKeywords = ['仇人', '对手', '政敌', '情敌', '背叛者', '对立', '敌对', '敌意']
+  if (oppKeywords.some(k => label.includes(k))) return true
+  // 其次根据数值判断：低信任 + 低亲密度 = 对立
+  const trust = edge.trust ?? (edge.value || 0)
+  const intimacy = edge.intimacy ?? (edge.value || 0)
+  return trust < 0.3 && intimacy < 0.35
+}
+
+/** 判断是否为亲密关系（用于视觉区分） */
+function isIntimate(edge: any): boolean {
+  const label = inferRelationLabel(edge)
+  const intKeywords = ['恋人', '暧昧', '闺蜜', '知己', '家人', '至亲', '亲密', '爱人']
+  if (intKeywords.some(k => label.includes(k))) return true
+  const intimacy = edge.intimacy ?? (edge.value || 0)
+  const trust = edge.trust ?? (edge.value || 0)
+  return intimacy > 0.7 && trust > 0.7
+}
+
+/** 获取边的视觉样式配置 */
+function getEdgeVisualStyle(edge: any): { color: string; type?: string; opacity: number } {
+  if (isOppositional(edge)) {
+    return {
+      color: '#ef4444',   // 红色 — 对立
+      type: 'dashed',     // 虚线 — 区分于亲密关系的实线
+      opacity: 0.75,
+    }
+  }
+  if (isIntimate(edge)) {
+    return {
+      color: '#a78bfa',   // 紫色 — 亲密
+      opacity: 0.85,
+    }
+  }
+  // 默认使用亲密度渐变色
+  return {
+    color: getEdgeColor(edge.value),
+    opacity: 0.75,
+  }
+}
+
+/** 检测双向关系并合并处理 */
+function buildProcessedEdges() {
+  const rawEdges = graphStore.relationEdges
+  const processed: any[] = []
+  const paired = new Set<string>() // 已配对处理的 "a-b" key
+
+  for (let i = 0; i < rawEdges.length; i++) {
+    const e = rawEdges[i]
+    const pairKey = [e.source, e.target].sort().join('-')
+
+    // 查找反向边
+    const reverseIdx = rawEdges.findIndex(
+      (r, idx) => idx !== i && r.source === e.target && r.target === e.source
+    )
+
+    if (reverseIdx >= 0 && !paired.has(pairKey)) {
+      // 双向关系存在
+      const rev = rawEdges[reverseIdx]
+      paired.add(pairKey)
+
+      const labelA = inferRelationLabel(e)
+      const labelB = inferRelationLabel(rev)
+
+      if (labelA === labelB) {
+        // 同关系类型 → 单条双向连线 + 居中标签
+        const style = getEdgeVisualStyle(e)
+        processed.push({
+          source: e.source,
+          target: e.target,
+          value: Math.max(e.value || 0, rev.value || 0),
+          lineStyle: {
+            color: style.color,
+            width: getEdgeWidth(Math.max(e.value || 0, rev.value || 0)),
+            type: style.type || 'solid',
+            opacity: style.opacity,
+            curveness: 0,
+          },
+          symbol: ['arrow', 'arrow'],
+          symbolSize: [7, 7],
+          label: {
+            show: true,
+            formatter: labelA,
+            fontSize: 9,
+            color: isOppositional(e) ? '#fca5a5' : '#c4b5fd',
+            position: 'middle',
+          },
+          _direction: 'bidirectional',
+        })
+      } else {
+        // 异关系类型 → 两条独立弧线，不同弯曲方向
+        const styleA = getEdgeVisualStyle(e)
+        const styleB = getEdgeVisualStyle(rev)
+        processed.push({
+          source: e.source,
+          target: e.target,
+          value: e.value || 1,
+          lineStyle: {
+            color: styleA.color,
+            width: getEdgeWidth(e.value),
+            type: styleA.type || 'solid',
+            opacity: styleA.opacity,
+            curveness: 0.2, // 向上弯曲
+          },
+          symbol: ['none', 'arrow'],
+          symbolSize: [0, 7],
+          label: {
+            show: true,
+            formatter: labelA,
+            fontSize: 9,
+            color: isOppositional(e) ? '#fca5a5' : '#94a3b8',
+            position: 'middle',
+            distance: [15, -5],
+          },
+          _direction: 'directed',
+        })
+        processed.push({
+          source: rev.source,
+          target: rev.target,
+          value: rev.value || 1,
+          lineStyle: {
+            color: styleB.color,
+            width: getEdgeWidth(rev.value),
+            type: styleB.type || 'solid',
+            opacity: styleB.opacity,
+            curveness: -0.2, // 向下弯曲（相反方向）
+          },
+          symbol: ['none', 'arrow'],
+          symbolSize: [0, 7],
+          label: {
+            show: true,
+            formatter: labelB,
+            fontSize: 9,
+            color: isOppositional(rev) ? '#fca5a5' : '#94a3b8',
+            position: 'middle',
+            distance: [15, 5],
+          },
+          _direction: 'directed',
+        })
+      }
+    } else if (!paired.has(pairKey)) {
+      // 单向关系 → 带箭头的直线
+      const label = inferRelationLabel(e)
+      const style = getEdgeVisualStyle(e)
+      processed.push({
+        source: e.source,
+        target: e.target,
+        value: e.value || 1,
+        lineStyle: {
+          color: style.color,
+          width: getEdgeWidth(e.value),
+          type: style.type || 'solid',
+          opacity: style.opacity,
+          curveness: 0.1,
+        },
+        symbol: ['none', 'arrow'],
+        symbolSize: [0, 8],
+        label: {
+          show: true,
+          formatter: label,
+          fontSize: 9,
+          color: isOppositional(e) ? '#fca5a5' : '#94a3b8',
+          position: 'middle',
+        },
+        _direction: 'directed',
+      })
+    }
+  }
+  return processed
+}
+
 // 构建图表配置
 const chartOption = computed(() => {
   const nodes = graphStore.relationNodes.map((node) => {
@@ -166,17 +372,7 @@ const chartOption = computed(() => {
     }
   })
 
-  const edges = graphStore.relationEdges.map((edge) => ({
-    source: edge.source,
-    target: edge.target,
-    value: edge.value || 1,
-    lineStyle: {
-      color: getEdgeColor(edge.value),
-      width: getEdgeWidth(edge.value),
-      opacity: 0.75,
-      curveness: 0.2,
-    },
-  }))
+  const edges = buildProcessedEdges()
 
   return {
     tooltip: {
@@ -194,10 +390,12 @@ const chartOption = computed(() => {
           return `<strong>${params.name}</strong><br/><span style="color:#94a3b8">角色</span>`
         }
         if (params.dataType === 'edge') {
+          const dirLabel = params.data._direction === 'bidirectional' ? '↔' : '→'
           const edgeData = graphStore.relationEdges.find(
             (e) => e.source === params.data.source && e.target === params.data.target
           )
-          return `${params.data.source} ↔ ${params.data.target}<br/>亲密度: ${(edgeData?.value || 0).toFixed(2)}`
+          const relLabel = params.data.label?.formatter || inferRelationLabel(edgeData)
+          return `${params.data.source} ${dirLabel} ${params.data.target}<br/><span style="color:#c4b5fd">${relLabel}</span><br/>亲密度: ${(edgeData?.value || 0).toFixed(2)}`
         }
         return ''
       },

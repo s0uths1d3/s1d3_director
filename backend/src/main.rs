@@ -1,3 +1,4 @@
+use utils::safe_truncate;
 mod handlers;
 mod models;
 mod llm_client;
@@ -6,6 +7,7 @@ mod script_generator;
 mod causal_graph;
 mod relation_network;
 mod co_pilot;
+mod utils;
 
 use axum::{Router, routing::{get, post, put, delete}};
 use handlers::AppState;
@@ -38,7 +40,7 @@ async fn main() {
         tracing::warn!("如需使用真实 AI 生成，请在 .env 中设置有效的 DEEPSEEK_API_KEY");
     } else {
         tracing::info!(
-            api_key_prefix = &deepseek_api_key[..deepseek_api_key.len().min(8)],
+            api_key_prefix = safe_truncate(&deepseek_api_key, 8),
             base_url = %deepseek_base_url,
             "✅ DeepSeek API 已配置，将使用【真实 LLM 模式】生成剧本"
         );

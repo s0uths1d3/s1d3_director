@@ -8,6 +8,7 @@ use axum::{
 use serde_json::json;
 
 use crate::models::*;
+use crate::utils::safe_truncate;
 use crate::{
     emotion_analyzer, script_generator, causal_graph, relation_network, co_pilot,
 };
@@ -373,7 +374,7 @@ async fn extract_characters_mock_or_llm(
             "请从以下小说中提取主要角色。\n\
             返回JSON数组：[{{\"id\", \"name\", \"traits\": [...], \"voice\": \"...\"}}]\n\n\
             小说文本（前3000字）：\n{}",
-            &text[..text.len().min(3000)]
+            safe_truncate(text, 3000)
         );
 
         let response = crate::llm_client::call_deepseek(&prompt, api_key, base_url, None, true).await?;

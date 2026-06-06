@@ -113,6 +113,9 @@ pub struct CausalEdge {
     #[serde(rename = "type")]
     pub edge_type: String,
     pub strength: f64,
+    /// 具体的因果关系描述（如"导致""触发""引发"等），用于图谱连线上显示
+    #[serde(default)]
+    pub description: Option<String>,
 }
 
 /// 内部因果图结构，使用 petgraph 存储
@@ -167,6 +170,12 @@ pub struct RelationEntry {
     pub intimacy: f64,
     pub power_gap: f64,
     pub trust: f64,
+    /// 关系类型标签（如"爱情""仇人""师徒"等），用于关系网络连线上显示
+    #[serde(default)]
+    pub relation_type: Option<String>,
+    /// 关系描述文本
+    #[serde(default)]
+    pub description: Option<String>,
     #[serde(default)]
     pub history: Vec<RelationHistoryItem>,
 }
@@ -254,7 +263,15 @@ pub struct MediaHints {
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct BeatAlternative {
     pub content: String,
+    /// 方案名称（用户自定义或系统自动生成）
+    #[serde(default)]
+    pub name: Option<String>,
+    /// 情绪/语气标签
+    #[serde(default)]
     pub tone: Option<String>,
+    /// 方案关联的情绪值，选中时同步到 beat.emotion
+    #[serde(default)]
+    pub emotion: Option<String>,
 }
 
 // ==================== 项目管理 ====================

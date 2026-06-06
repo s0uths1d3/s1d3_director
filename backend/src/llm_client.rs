@@ -152,9 +152,9 @@ fn mock_response(prompt: &str, _json_mode: bool) -> String {
     } else if prompt_lower.contains("角色") || prompt_lower.contains("character") || prompt_lower.contains("抽取") {
         r#"[{"id":"char_001","name":"林曦","traits":["敏感","执着","善良"],"voice":"轻柔，慢速，偶尔停顿"},{"id":"char_002","name":"顾言","traits":["冷静","理性","内敛"],"voice":"简洁，低沉，条理清晰"},{"id":"char_003","name":"苏晴","traits":["活泼","直率","热心"],"voice":"语速快，音调高，喜欢用感叹号"}]"#.to_string()
     } else if prompt_lower.contains("因果") || prompt_lower.contains("causal") || prompt_lower.contains("事件") {
-        r#"{"events":[{"id":"evt_001","description":"林曦在图书馆偶遇顾言","scene_ids":[1],"chapter":1},{"id":"evt_002","description":"顾言借给林曦一本笔记","scene_ids":[1],"chapter":1},{"id":"evt_003","description":"林曦发现笔记中的秘密留言","scene_ids":[2],"chapter":2},{"id":"evt_004","description":"苏晴告诉林曦顾言的过去","scene_ids":[3],"chapter":3}],"edges":[{"from":"evt_001","to":"evt_002","type":"causal","strength":0.9},{"from":"evt_002","to":"evt_003","type":"temporal","strength":1.0},{"from":"evt_003","to":"evt_004","type":"emotional","strength":0.7}]}"#.to_string()
+        r#"{"events":[{"id":"evt_001","description":"林曦在图书馆偶遇顾言","scene_ids":[1],"chapter":1},{"id":"evt_002","description":"顾言借给林曦一本笔记","scene_ids":[1],"chapter":1},{"id":"evt_003","description":"林曦发现笔记中的秘密留言","scene_ids":[2],"chapter":2},{"id":"evt_004","description":"苏晴告诉林曦顾言的过去","scene_ids":[3],"chapter":3}],"edges":[{"from":"evt_001","to":"evt_002","type":"causal","strength":0.9,"description":"偶遇引发初次互动"},{"from":"evt_002","to":"evt_003","type":"causal","strength":1.0,"description":"借出笔记直接导致秘密被发现"},{"from":"evt_003","to":"evt_004","type":"emotional","strength":0.7,"description":"情感冲击促使寻求真相"}]}"#.to_string()
     } else if prompt_lower.contains("关系") || prompt_lower.contains("relation") || prompt_lower.contains("网络") {
-        r#"{"matrix":[{"from":"林曦","to":"顾言","intimacy":0.6,"power_gap":-0.3,"trust":0.7,"history":[{"scene_id":1,"delta_intimacy":0.2,"delta_power":0.0,"delta_trust":0.3}]},{"from":"顾言","to":"林曦","intimacy":0.6,"power_gap":0.3,"trust":0.65,"history":[{"scene_id":1,"delta_intimacy":0.2,"delta_power":0.0,"delta_trust":0.25}]},{"from":"林曦","to":"苏晴","intimacy":0.8,"power_gap":0.1,"trust":0.9,"history":[]},{"from":"苏晴","to":"林曦","intimacy":0.8,"power_gap":-0.1,"trust":0.88,"history":[]},{"from":"顾言","to":"苏晴","intimacy":0.3,"power_gap":0.2,"trust":0.4,"history":[]},{"from":"苏晴","to":"顾言","intimacy":0.3,"power_gap":-0.2,"trust":0.35,"history":[]}]}"#.to_string()
+        r#"{"matrix":[{"from":"林曦","to":"顾言","intimacy":0.6,"power_gap":-0.3,"trust":0.7,"relation_type":"暧昧","description":"图书馆相遇后产生的好感与试探","history":[{"scene_id":1,"delta_intimacy":0.2,"delta_power":0.0,"delta_trust":0.3}]},{"from":"顾言","to":"林曦","intimacy":0.6,"power_gap":0.3,"trust":0.65,"relation_type":"暧昧","description":"对林曦的关注与保护欲","history":[{"scene_id":1,"delta_intimacy":0.2,"delta_power":0.0,"delta_trust":0.25}]},{"from":"林曦","to":"苏晴","intimacy":0.8,"power_gap":0.1,"trust":0.9,"relation_type":"闺蜜","description":"无话不谈的挚友关系","history":[]},{"from":"苏晴","to":"林曦","intimacy":0.8,"power_gap":-0.1,"trust":0.88,"relation_type":"闺蜜","description":"最信任的朋友","history":[]},{"from":"顾言","to":"苏晴","intimacy":0.3,"power_gap":0.2,"trust":0.4,"relation_type":"疏远","description":"因林曦产生的微妙竞争感","history":[]},{"from":"苏晴","to":"顾言","intimacy":0.3,"power_gap":-0.2,"trust":0.35,"relation_type":"提防","description":"担心顾言伤害林曦","history":[]}]}"#.to_string()
     } else if prompt_lower.contains("剧本") || prompt_lower.contains("script") || prompt_lower.contains("生成") || prompt_lower.contains("节拍") {
         // 返回完整剧本 YAML 的 JSON 表示（后续会被转为 YAML）
         mock_script_json()
@@ -188,15 +188,18 @@ fn mock_script_json() -> String {
       {"id": "evt_003", "description": "林曦发现笔记中的秘密留言", "scene_ids": [2], "chapter": 2}
     ],
     "edges": [
-      {"from": "evt_001", "to": "evt_002", "type": "causal", "strength": 0.9},
-      {"from": "evt_002", "to": "evt_003", "type": "temporal", "strength": 1.0}
+      {"from": "evt_001", "to": "evt_002", "type": "causal", "strength": 0.9, "description": "偶遇引发初次互动与对话"},
+      {"from": "evt_002", "to": "evt_003", "type": "causal", "strength": 1.0, "description": "借出笔记直接导致秘密被发现"}
     ]
   },
   "relation_network": {
     "matrix": [
-      {"from": "林曦", "to": "顾言", "intimacy": 0.6, "power_gap": -0.3, "trust": 0.7, "history": []},
-      {"from": "顾言", "to": "林曦", "intimacy": 0.6, "power_gap": 0.3, "trust": 0.65, "history": []},
-      {"from": "林曦", "to": "苏晴", "intimacy": 0.8, "power_gap": 0.1, "trust": 0.9, "history": []}
+      {"from": "林曦", "to": "顾言", "intimacy": 0.6, "power_gap": -0.3, "trust": 0.7,
+       "relation_type": "暧昧", "description": "图书馆相遇后产生的好感", "history": []},
+      {"from": "顾言", "to": "林曦", "intimacy": 0.6, "power_gap": 0.3, "trust": 0.65,
+       "relation_type": "暧昧", "description": "对林曦的关注与保护欲", "history": []},
+      {"from": "林曦", "to": "苏晴", "intimacy": 0.8, "power_gap": 0.1, "trust": 0.9,
+       "relation_type": "闺蜜", "description": "无话不谈的挚友", "history": []}
     ]
   },
   "scenes": [

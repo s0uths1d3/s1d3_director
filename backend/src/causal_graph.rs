@@ -1,5 +1,6 @@
 use crate::models::*;
 use crate::llm_client::call_deepseek;
+use crate::utils::safe_truncate;
 use petgraph::graph::{DiGraph, NodeIndex};
 
 /// 从剧本 YAML 中构建因果图谱
@@ -18,11 +19,26 @@ pub async fn build_causal_graph(
     // 如果有 API Key，使用 LLM 提取
     if !api_key.is_empty() && api_key != "mock" {
         let prompt = format!(
-            "请分析以下剧本，提取关键事件及其因果关系。\n\
-            返回JSON格式：{{\"events\": [{{\"id\", \"description\", \"scene_ids\", \"chapter\"}}], \
-            \"edges\": [{{\"from\", \"to\", \"type\", \"strength\"}}]}}\n\n\
-            剧本内容（前5000字）：\n{}",
-            &script_yaml[..script_yaml.len().min(5000)]
+            "你是一名专业编剧分析师。请分析以下剧本，提取关键事件及其因果关系。\n\n\
+            ## 输出要求\n\n\
+            返回严格的 JSON 格式，包含 events（事件节点）和 edges（因果连线）两个数组：\n\n\
+            {{\n\
+              \"events\": [{{\"id\":\"事件ID\",\"description\":\"事件描述文本\",\"scene_ids\":[场景编号],\"chapter\":章节号}}],\n\
+              \"edges\": [{{\"from\":\"源事件ID\",\"to\":\"目标事件ID\",\"type\":\"causal|temporal|emotional\",\"strength\":0.0~1.0,\"description\":\"具体因果关系描述\"}}]\n\
+            }}\n\n\
+            ## 因果边（edges）的关键规则\n\n\
+            1. **每条边必须包含 description 字段**：用简洁的中文描述具体的因果机制，例如：\n\
+               - \"直接导致\" / \"触发\" / \"引发\" / \"促使\" / \"间接造成\" / \"时间推进后必然发生\"\n\
+               - \"情感转折引发\" / \"信息暴露导致信任崩塌\" / \"误会加深使矛盾激化\"\n\
+               - **禁止使用泛化标签**，如仅写「因果」或「关联」，必须写出具体原因\n\
+            2. **type 字段取值**：\n\
+               - causal: 直接因果（一个事件直接导致另一个事件）\n\
+               - temporal: 时序关系（时间上先后发生，有逻辑承接但不一定是强因果）\n\
+               - emotional: 情感驱动（情绪/心理状态变化导致的行为或事件）\n\
+            3. **strength 字段**：0.1~1.0，表示因果强度/确定性。1.0=必然发生，0.5=较可能，0.1=弱相关\n\
+            4. **description 是连线上显示的核心文本**，请确保它准确、具体、可读性强\n\n\
+            ## 剧本内容（前5000字）：\n{}",
+            safe_truncate(script_yaml, 5000)
         );
 
         let response = call_deepseek(&prompt, api_key, base_url, None, true).await?;
@@ -101,18 +117,21 @@ fn mock_causal_graph() -> CausalGraphData {
                 to: "evt_002".to_string(),
                 edge_type: "causal".to_string(),
                 strength: 0.9,
+                description: Some("直接导致".to_string()),
             },
             CausalEdge {
                 from: "evt_002".to_string(),
                 to: "evt_003".to_string(),
                 edge_type: "temporal".to_string(),
                 strength: 1.0,
+                description: Some("时间推进后触发".to_string()),
             },
             CausalEdge {
                 from: "evt_003".to_string(),
                 to: "evt_004".to_string(),
                 edge_type: "emotional".to_string(),
                 strength: 0.7,
+                description: Some("情感转折引发".to_string()),
             },
         ],
     };

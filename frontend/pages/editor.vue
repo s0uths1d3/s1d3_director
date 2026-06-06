@@ -176,8 +176,15 @@
 
         <!-- 图谱内容区 -->
         <div class="flex-1 overflow-auto p-3">
-          <CausalGraph v-if="leftTab === 'causal'" />
-          <RelationNetwork v-else />
+          <ClientOnly>
+            <CausalGraph v-if="leftTab === 'causal'" />
+            <RelationNetwork v-else />
+            <template #fallback>
+              <div class="flex items-center justify-center h-full text-slate-500 text-sm">
+                加载图谱中...
+              </div>
+            </template>
+          </ClientOnly>
         </div>
       </aside>
 
@@ -1015,6 +1022,8 @@ function initFromYaml(rawYaml: string): boolean {
         source: e.from,
         target: e.to,
         value: e.strength,
+        // 优先使用具体描述，否则用类型中文标签
+        description: e.description || undefined,
         label: e.type === 'causal' ? '因果' : e.type === 'temporal' ? '时序' : '情感',
         lineStyle: {
           color: e.type === 'causal' ? '#60a5fa' : e.type === 'temporal' ? '#94a3b8' : '#f87171',
@@ -1037,6 +1046,9 @@ function initFromYaml(rawYaml: string): boolean {
         source: entry.from,
         target: entry.to,
         value: entry.intimacy,
+        trust: entry.trust,
+        description: entry.relation_type || entry.description || undefined,
+        label: entry.relation_type || undefined,
       }))
       graphStore.setRelationNetwork(relationNodes, relationEdges)
     }

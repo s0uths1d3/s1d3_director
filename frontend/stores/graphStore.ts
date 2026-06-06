@@ -11,7 +11,12 @@ export interface GraphEdge {
   source: string
   target: string
   value?: number
+  /** 边类型标签（如 causal/temporal/emotional，或关系类型） */
   label?: string
+  /** 具体的因果关系描述 / 关系描述（用于连线上显示的详细文本） */
+  description?: string
+  /** 关系方向：'directed'（单向） | 'bidirectional'（双向同关系） */
+  direction?: 'directed' | 'bidirectional'
   lineStyle?: {
     type?: string
     color?: string

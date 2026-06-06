@@ -1,6 +1,7 @@
 use crate::models::*;
 use crate::llm_client::call_deepseek;
 use crate::emotion_analyzer::analyze_emotions;
+use crate::utils::safe_truncate;
 
 /// 生成完整剧本 YAML
 pub async fn generate_script(
@@ -87,10 +88,21 @@ async fn generate_with_llm(
   ],
   "causal_graph": {{
     "events": [{{ "id":"evt_001","description":"事件描述","scene_ids":[1],"chapter":1 }}],
-    "edges": [{{ "from":"evt_001","to":"evt_002","type":"causal","strength":0.9 }}]
+    "edges": [
+      {{ "from":"evt_001","to":"evt_002","type":"causal|temporal|emotional","strength":0.9,
+         "description":"具体的因果关系描述，如'直接导致''触发''情感转折引发'等" }}
+    ]
   }},
   "relation_network": {{
-    "matrix": [{{ "from":"角色A","to":"角色B","intimacy":0.6,"power_gap":-0.3,"trust":0.7 }}]
+    "matrix": [
+      {{ "from":"角色A","to":"角色B","intimacy":0.6,"power_gap":-0.3,"trust":0.7,
+         "relation_type":"关系类型标签（如暧昧/仇人/闺蜜/对手）",
+         "description":"关系详细描述（可选）",
+         "history":[] }},
+      {{ "from":"角色B","to":"角色A","intimacy":0.6,"power_gap":0.3,"trust":0.65,
+         "relation_type":"关系类型标签（双向关系的另一方向）",
+         "history":[] }}
+    ]
   }},
   "scenes": [
     {{
@@ -131,7 +143,7 @@ async fn generate_with_llm(
         style_desc,
         blind_mode_note,
         media_note,
-        &text[..text.len().min(8000)]
+        safe_truncate(text, 8000)
     );
 
     let response = call_deepseek(&prompt, api_key, base_url, None, true).await?;
@@ -162,7 +174,7 @@ async fn generate_with_llm(
         Err(e) => {
             tracing::error!(
                 error = %e,
-                raw_preview = &json_str[..json_str.len().min(500)],
+                raw_preview = safe_truncate(&json_str, 500),
                 "LLM 返回的 JSON 无法解析为标准格式，且智能转换也失败"
             );
             return Err(format!(
@@ -275,7 +287,7 @@ fn convert_to_script_yaml(json_str: &str, emotional_curve: EmotionalCurve) -> Re
                                             .unwrap_or("")
                                             .to_string();
                                         let tone = a.get("tone").and_then(|v| v.as_str()).map(String::from);
-                                        BeatAlternative { content: alt_content, tone }
+                                        BeatAlternative { content: alt_content, tone, name: None, emotion: None }
                                     }).collect()
                                 })
                                 .unwrap_or_default();
@@ -342,10 +354,14 @@ fn generate_mock_script(_text: &str, config: &GenConfig) -> String {
             BeatAlternative {
                 content: "备选版本：午后的图书馆安静得能听见翻书声。林曦坐在靠窗的位置，面前摊开着三本厚重的专业书。".to_string(),
                 tone: Some("静谧".to_string()),
+                name: None,
+                emotion: None,
             },
             BeatAlternative {
                 content: "备选版本：阳光斜斜地照进来，在地板上画出金色的格子。林曦揉了揉发酸的眼睛。".to_string(),
                 tone: Some("慵懒".to_string()),
+                name: None,
+                emotion: None,
             },
         ]
     } else {
@@ -420,12 +436,14 @@ fn generate_mock_script(_text: &str, config: &GenConfig) -> String {
                         to: "evt_002".to_string(),
                         edge_type: "causal".to_string(),
                         strength: 0.9,
+                        description: Some("直接导致".to_string()),
                     },
                     CausalEdge {
                         from: "evt_002".to_string(),
                         to: "evt_003".to_string(),
                         edge_type: "temporal".to_string(),
                         strength: 1.0,
+                        description: Some("时间推进后触发".to_string()),
                     },
                 ],
             })
@@ -441,6 +459,8 @@ fn generate_mock_script(_text: &str, config: &GenConfig) -> String {
                         intimacy: 0.6,
                         power_gap: -0.3,
                         trust: 0.7,
+                        relation_type: Some("暧昧".to_string()),
+                        description: None,
                         history: vec![],
                     },
                     RelationEntry {
@@ -449,6 +469,8 @@ fn generate_mock_script(_text: &str, config: &GenConfig) -> String {
                         intimacy: 0.6,
                         power_gap: 0.3,
                         trust: 0.65,
+                        relation_type: Some("暧昧".to_string()),
+                        description: None,
                         history: vec![],
                     },
                     RelationEntry {
@@ -457,6 +479,8 @@ fn generate_mock_script(_text: &str, config: &GenConfig) -> String {
                         intimacy: 0.8,
                         power_gap: 0.1,
                         trust: 0.9,
+                        relation_type: Some("闺蜜".to_string()),
+                        description: None,
                         history: vec![],
                     },
                 ],
@@ -486,6 +510,8 @@ fn generate_mock_script(_text: &str, config: &GenConfig) -> String {
                             BeatAlternative {
                                 content: "一道阴影落在书页上。林曦抬起头，撞进一双平静如水的眼睛里。".to_string(),
                                 tone: Some("文艺".to_string()),
+                                name: None,
+                                emotion: None,
                             },
                         ],
                         selected: 0,
@@ -498,8 +524,8 @@ fn generate_mock_script(_text: &str, config: &GenConfig) -> String {
                         speaker: Some("顾言".to_string()),
                         emotion: Some("平淡".to_string()),
                         alternatives: vec![
-                            BeatAlternative { content: "请问，这个位置……".to_string(), tone: Some("礼貌".to_string()) },
-                            BeatAlternative { content: "介意我坐这儿吗？".to_string(), tone: Some("随意".to_string()) },
+                            BeatAlternative { content: "请问，这个位置……".to_string(), tone: Some("礼貌".to_string()), name: None, emotion: None },
+                            BeatAlternative { content: "介意我坐这儿吗？".to_string(), tone: Some("随意".to_string()), name: None, emotion: None },
                         ],
                         selected: 0,
                     },
@@ -509,7 +535,7 @@ fn generate_mock_script(_text: &str, config: &GenConfig) -> String {
                         speaker: Some("林曦".to_string()),
                         emotion: Some("惊讶→镇定".to_string()),
                         alternatives: vec![
-                            BeatAlternative { content: "没、没有，请坐……".to_string(), tone: Some("慌乱".to_string()) },
+                            BeatAlternative { content: "没、没有，请坐……".to_string(), tone: Some("慌乱".to_string()), name: None, emotion: None },
                         ],
                         selected: 0,
                     },
@@ -553,6 +579,8 @@ fn generate_mock_script(_text: &str, config: &GenConfig) -> String {
                             BeatAlternative {
                                 content: "林曦关上宿舍门，迫不及待地打开笔记本。借着台灯的光，她发现每一页的角落都有细小的铅笔字。".to_string(),
                                 tone: Some("悬疑".to_string()),
+                                name: None,
+                                emotion: None,
                             },
                         ],
                         selected: 0,
@@ -573,7 +601,7 @@ fn generate_mock_script(_text: &str, config: &GenConfig) -> String {
                         speaker: Some("林曦".to_string()),
                         emotion: Some("震惊→困惑".to_string()),
                         alternatives: vec![
-                            BeatAlternative { content: "这个 G 是……".to_string(), tone: Some("自言自语".to_string()) },
+                            BeatAlternative { content: "这个 G 是……".to_string(), tone: Some("自言自语".to_string()), name: None, emotion: None },
                         ],
                         selected: 0,
                     },

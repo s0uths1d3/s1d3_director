@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 use crate::llm_client::{call_deepseek, Message};
+use crate::utils::safe_truncate;
 
 /// 副编剧上下文
 #[derive(Debug, Deserialize, Default)]
@@ -138,7 +139,7 @@ pub async fn suggest(
         "请分析以下剧本，找出可以改进的地方。\n\
         返回JSON数组格式：[{{\"type\": \"节奏/角色/逻辑/对白/结构\", \"message\": \"建议内容\", \"target_scene_id\": 场景ID或null}}]\n\n\
         剧本内容：\n{}",
-        &script_yaml[..script_yaml.len().min(5000)]
+        safe_truncate(script_yaml, 5000)
     );
 
     let response = call_deepseek(&prompt, api_key, base_url, None, true).await?;
@@ -226,7 +227,11 @@ pub struct RegenerateResponse {
 pub struct BeatAlternative {
     pub content: String,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub tone: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub emotion: Option<String>,
 }
 
 const REGENERATE_SYSTEM_PROMPT: &str =
@@ -300,7 +305,9 @@ pub async fn regenerate(
                     items.iter().filter_map(|item| {
                         Some(BeatAlternative {
                             content: item.get("content")?.as_str()?.to_string(),
+                            name: item.get("name").and_then(|v| v.as_str()).map(String::from),
                             tone: item.get("tone").and_then(|v| v.as_str()).map(String::from),
+                            emotion: item.get("emotion").and_then(|v| v.as_str()).map(String::from),
                         })
                     }).collect::<Vec<_>>()
                 })
@@ -361,10 +368,14 @@ fn mock_regenerate_response(req: &RegenerateRequest) -> RegenerateResponse {
                 BeatAlternative {
                     content: "[备选方案A] 另一种表达方式（模拟）".to_string(),
                     tone: Some("正式".to_string()),
+                    name: None,
+                    emotion: None,
                 },
                 BeatAlternative {
                     content: "[备选方案B] 更口语化的版本（模拟）".to_string(),
                     tone: Some("轻松".to_string()),
+                    name: None,
+                    emotion: None,
                 },
             ]),
             beats: None,

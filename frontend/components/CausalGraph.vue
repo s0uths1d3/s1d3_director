@@ -92,31 +92,44 @@ const chartOption = computed(() => {
     itemStyle: getNodeStyle(node.id),
     label: {
       show: true,
-      fontSize: 11,
+      fontSize: 10,
       color: '#e2e8f0',
-      formatter: truncateText(node.name, 12),
+      // 节点名称截断到 8 个字符，避免文字过长导致节点重叠
+      formatter: truncateText(node.name, 8),
     },
   }))
 
-  const edges = graphStore.causalEdges.map((edge) => ({
-    source: edge.source,
-    target: edge.target,
-    value: edge.value || 1,
-    lineStyle: {
-      color: edge.lineStyle?.color || edgeColorMap[edge.label as string] || '#60a5fa',
-      width: edge.lineStyle?.width || (edge.value ? Math.min(3, Math.max(1, edge.value)) : 2),
-      type: edge.lineStyle?.type || 'solid',
-      curveness: 0.15,
-    },
-    symbol: ['none', 'arrow'],
-    symbolSize: [0, 8],
-    label: {
-      show: !!edge.label,
-      formatter: edge.label || '',
-      fontSize: 9,
-      color: '#94a3b8',
-    },
-  }))
+  const edges = graphStore.causalEdges.map((edge) => {
+    // 连线标注：截断到 6 个字符，避免遮挡连线
+    const rawLabel = edge.description || edge.label || ''
+    const displayLabel = truncateText(rawLabel, 6)
+    return {
+      source: edge.source,
+      target: edge.target,
+      value: edge.value || 1,
+      lineStyle: {
+        color: edge.lineStyle?.color || edgeColorMap[edge.label as string] || '#60a5fa',
+        width: edge.lineStyle?.width || (edge.value ? Math.min(3, Math.max(1, edge.value)) : 2),
+        type: edge.lineStyle?.type || 'solid',
+        curveness: 0.15,
+      },
+      symbol: ['none', 'arrow'],
+      symbolSize: [0, 8],
+      label: {
+        show: !!displayLabel,
+        formatter: displayLabel,
+        fontSize: 9,
+        color: '#94a3b8',
+        position: 'middle',
+        distance: 0,
+        // 添加半透明背景，确保文字在连线上可读
+        backgroundColor: 'rgba(15, 23, 42, 0.75)',
+        borderColor: 'transparent',
+        borderRadius: 3,
+        padding: [2, 4],
+      },
+    }
+  })
 
   return {
     tooltip: {
@@ -131,10 +144,17 @@ const chartOption = computed(() => {
       },
       formatter: (params: any) => {
         if (params.dataType === 'node') {
-          return `<strong>${params.name}</strong>`
+          // tooltip 显示完整节点名称
+          const fullNode = graphStore.causalNodes.find(n => n.id === params.data.id)
+          return `<strong>${fullNode?.name || params.name}</strong>`
         }
         if (params.dataType === 'edge') {
-          return `${params.data.source} → ${params.data.target}<br/>类型: ${params.data.label || '关联'}`
+          const edgeData = graphStore.causalEdges.find(
+            (e) => e.source === params.data.source && e.target === params.data.target
+          )
+          // tooltip 显示完整的因果关系描述
+          const desc = edgeData?.description || edgeData?.label || '关联'
+          return `${params.data.source} → ${params.data.target}<br/><span style="color:#60a5fa">${desc}</span>`
         }
         return ''
       },
@@ -150,9 +170,9 @@ const chartOption = computed(() => {
         roam: true,
         draggable: true,
         force: {
-          repulsion: 350,
+          repulsion: 450,
           gravity: 0.02,
-          edgeLength: [120, 250],
+          edgeLength: [150, 300],
           layoutAnimation: true,
           friction: 0.6,
           preventOverlap: true,

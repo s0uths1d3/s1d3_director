@@ -1,5 +1,6 @@
 use crate::models::EmotionalCurve;
 use crate::llm_client::call_deepseek;
+use crate::utils::safe_truncate;
 
 /// 简易情感词典（正面/负面关键词及权重）
 const POSITIVE_WORDS: &[(&str, f64)] = &[
@@ -27,7 +28,7 @@ pub async fn analyze_emotions(
             "请分析以下小说文本的情感节奏。按章节划分，返回每章的平均情绪强度（0-1之间的浮点数）。\n\
             返回JSON格式：{{\"chapters\": [1,2,3,...], \"intensities\": [0.x, 0.y, ...]}}\n\n\
             文本内容（前5000字）：\n{}",
-            &text[..text.len().min(5000)]
+            safe_truncate(text, 5000)
         );
 
         let response = call_deepseek(&prompt, api_key, base_url, None, true).await?;
