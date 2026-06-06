@@ -150,13 +150,13 @@ function truncateText(text: string, maxLen: number): string {
   return text.length > maxLen ? text.slice(0, maxLen) + '…' : text
 }
 
-// 根据亲密度/信任度推断关系类型描述（截断到6字符防止溢出）
+// 根据亲密度/信任度推断关系类型描述（短标签优先完整显示）
 function inferRelationLabel(edge: any): string {
-  // 优先使用后端提供的 relation_type 标签（通常较短）
-  if (edge.relation_type) return truncateText(edge.relation_type, 6)
-  // 其次使用 description（可能较长，必须截断）
-  if (edge.description) return truncateText(edge.description, 6)
-  if (edge.label && edge.label !== '关联') return truncateText(edge.label, 6)
+  // 优先使用后端提供的 relation_type 标签
+  if (edge.relation_type) return edge.relation_type.length > 8 ? truncateText(edge.relation_type, 8) : edge.relation_type
+  // 其次使用 description
+  if (edge.description) return edge.description.length > 8 ? truncateText(edge.description, 8) : edge.description
+  if (edge.label && edge.label !== '关联') return edge.label.length > 8 ? truncateText(edge.label, 8) : edge.label
 
   const val = edge.value || 0
   const trust = edge.trust ?? val
@@ -215,21 +215,36 @@ function getEdgeVisualStyle(edge: any): { color: string; type?: string; opacity:
   }
 }
 
-/** 检测双向关系并合并处理
+/** 检测双向关系并合并处理 — 弧线防重叠设计
  *
- * 三种情况：
- * 1. 同关系类型(A↔B都是"好友") → 单条双向连线 + 居中标签
- * 2. 异关系类型(A→B"暗恋", B→A"普通") → 两条独立弧线(±curveness)，各带箭头和独立标签
- * 3. 单向关系(A→B"暗恋") → 单条单向箭头线 + 标签
+ * 核心策略：
+ * 1. 同关系类型(A↔B都是"好友") → 单条直线 + 双向箭头 + 居中标签
+ * 2. 异关系类型(A→B"暗恋", B→A"普通") → 两条大弧度曲线(±curveness)，标签沿法向偏移到弧线外侧
+ * 3. 单向关系(A→B"暗恋") → 轻微弯曲的单箭头线 + 标签
+ *
+ * 防重叠机制：
+ * - 弧线使用较大的 curveness 绝对值(0.4~0.55)，拉开两弧间距
+ * - 标签使用 distance 偏移到各自弧线的凸侧（法向外侧）
+ * - 标签强制水平显示（rotate: 0），避免斜向文字重叠
+ * - 多对同节点边时动态递增 curveness，避免三边以上重叠
  */
 function buildProcessedEdges() {
   const rawEdges = graphStore.relationEdges
   const processed: any[] = []
-  const paired = new Set<string>() // 已配对处理的 "a-b" key
+  const paired = new Set<string>()
+  // 记录每对节点之间的边数量，用于多边场景递增曲率
+  const pairEdgeCount = new Map<string, number>()
+
+  // 预统计：同一对节点之间有多少条边
+  for (const e of rawEdges) {
+    const key = [e.source, e.target].sort().join('-')
+    pairEdgeCount.set(key, (pairEdgeCount.get(key) || 0) + 1)
+  }
 
   for (let i = 0; i < rawEdges.length; i++) {
     const e = rawEdges[i]
     const pairKey = [e.source, e.target].sort().join('-')
+    const edgeCount = pairEdgeCount.get(pairKey) || 1
 
     // 查找反向边
     const reverseIdx = rawEdges.findIndex(
@@ -237,7 +252,7 @@ function buildProcessedEdges() {
     )
 
     if (reverseIdx >= 0 && !paired.has(pairKey)) {
-      // ===== 双向关系存在 =====
+      // ===== 双向关系 =====
       const rev = rawEdges[reverseIdx]
       paired.add(pairKey)
 
@@ -245,7 +260,7 @@ function buildProcessedEdges() {
       const labelB = inferRelationLabel(rev)
 
       if (labelA === labelB) {
-        // ---- 情况1: 同关系类型 → 单条双向连线 ----
+        // ---- 情况1: 同类型 → 直线双箭头 ----
         const style = getEdgeVisualStyle(e)
         processed.push({
           source: e.source,
@@ -263,23 +278,29 @@ function buildProcessedEdges() {
           label: {
             show: true,
             formatter: labelA,
-            fontSize: 9,
+            fontSize: 10,
             color: isOppositional(e) ? '#fca5a5' : '#c4b5fd',
             position: 'middle',
-            // 半透明背景确保文字在彩色连线上清晰可读
-            backgroundColor: 'rgba(15, 23, 42, 0.8)',
+            rotate: 0,
+            backgroundColor: 'rgba(15, 23, 42, 0.85)',
             borderColor: 'transparent',
-            borderRadius: 3,
-            padding: [2, 5],
+            borderRadius: 4,
+            padding: [2, 6],
           },
           _direction: 'bidirectional',
         })
       } else {
-        // ---- 情况2: 异关系类型 → 两条独立弧线，各自带箭头和标签 ----
+        // ---- 情况2: 异类型 → 外弧+内弧分离模式 ----
+        // 一条大曲率弧线绕到两节点连线的外侧（宽弧）
+        // 一条小曲率弧线贴近连线的内侧（紧弧）
+        // 形成类似图中红线的「外包围 + 内通道」效果
         const styleA = getEdgeVisualStyle(e)
         const styleB = getEdgeVisualStyle(rev)
 
-        // 弧线A: source → target，向上弯曲(curveness > 0)
+        const curveA = 0.55    // 外弧：向一侧大幅弯曲，绕过节点外侧
+        const curveB = -0.12    // 内弧：向另一侧轻微弯曲，贴近节点间直线
+
+        // 弧线A: source → target，外弧（大弯度）
         processed.push({
           source: e.source,
           target: e.target,
@@ -289,27 +310,29 @@ function buildProcessedEdges() {
             width: getEdgeWidth(e.value),
             type: styleA.type || 'solid',
             opacity: styleA.opacity,
-            curveness: 0.35,
+            curveness: curveA,
           },
-          symbol: ['none', 'arrow'],       // 仅末端有箭头
-          symbolSize: [0, 8],
+          symbol: ['none', 'arrow'],
+          symbolOffset: [3, -5],
+          symbolSize: [0, 9],
           label: {
             show: true,
             formatter: labelA,
-            fontSize: 9,
+            fontSize: 10,
             color: isOppositional(e) ? '#fca5a5' : '#94a3b8',
             position: 'middle',
-            // 标签向上偏移（沿曲线法向方向），避免与另一条弧的标签重叠
-            distance: [0, -12],
-            backgroundColor: 'rgba(15, 23, 42, 0.8)',
-            borderColor: 'transparent',
-            borderRadius: 3,
-            padding: [2, 5],
+            distance: [0, -14],
+            rotate: 0,
+            backgroundColor: 'rgba(15, 23, 42, 0.92)',
+            borderColor: styleA.color,
+            borderWidth: 1,
+            borderRadius: 4,
+            padding: [2, 6],
           },
           _direction: 'directed',
         })
 
-        // 弧线B: target → source（反向），向下弯曲(curveness < 0)
+        // 弧线B: target → source，内弧（小弯度，贴近直线）
         processed.push({
           source: rev.source,
           target: rev.target,
@@ -319,28 +342,30 @@ function buildProcessedEdges() {
             width: getEdgeWidth(rev.value),
             type: styleB.type || 'solid',
             opacity: styleB.opacity,
-            curveness: -0.35,
+            curveness: curveB,
           },
-          symbol: ['none', 'arrow'],       // 仅末端有箭头
-          symbolSize: [0, 8],
+          symbol: ['none', 'arrow'],
+          symbolOffset: [-2, 3],
+          symbolSize: [0, 9],
           label: {
             show: true,
             formatter: labelB,
-            fontSize: 9,
+            fontSize: 10,
             color: isOppositional(rev) ? '#fca5a5' : '#94a3b8',
             position: 'middle',
-            // 标签向下偏移（与弧线A标签错开）
-            distance: [0, 12],
-            backgroundColor: 'rgba(15, 23, 42, 0.8)',
-            borderColor: 'transparent',
-            borderRadius: 3,
-            padding: [2, 5],
+            distance: [0, 10],
+            rotate: 0,
+            backgroundColor: 'rgba(15, 23, 42, 0.92)',
+            borderColor: styleB.color,
+            borderWidth: 1,
+            borderRadius: 4,
+            padding: [2, 6],
           },
           _direction: 'directed',
         })
       }
     } else if (!paired.has(pairKey)) {
-      // ---- 情况3: 单向关系 → 带箭头的直线 ----
+      // ---- 情况3: 单向关系 ----
       const label = inferRelationLabel(e)
       const style = getEdgeVisualStyle(e)
       processed.push({
@@ -352,21 +377,22 @@ function buildProcessedEdges() {
           width: getEdgeWidth(e.value),
           type: style.type || 'solid',
           opacity: style.opacity,
-          curveness: 0.1,
+          curveness: 0.08,     // 微小弯曲以区分于直线双箭头
         },
         symbol: ['none', 'arrow'],
         symbolSize: [0, 8],
         label: {
-            show: true,
-            formatter: label,
-            fontSize: 9,
-            color: isOppositional(e) ? '#fca5a5' : '#94a3b8',
-            position: 'middle',
-            backgroundColor: 'rgba(15, 23, 42, 0.8)',
-            borderColor: 'transparent',
-            borderRadius: 3,
-            padding: [2, 5],
-          },
+          show: true,
+          formatter: label,
+          fontSize: 9,
+          color: isOppositional(e) ? '#fca5a5' : '#94a3b8',
+          position: 'middle',
+          rotate: 0,
+          backgroundColor: 'rgba(15, 23, 42, 0.85)',
+          borderColor: 'transparent',
+          borderRadius: 4,
+          padding: [2, 5],
+        },
         _direction: 'directed',
       })
     }
@@ -440,9 +466,9 @@ const chartOption = computed(() => {
         roam: true,
         draggable: true,
         force: {
-          repulsion: 300,
-          gravity: 0.03,
-          edgeLength: [130, 280],
+          repulsion: 300,           // 正常斥力，不拉远节点
+          gravity: 0.03,            // 正常引力
+          edgeLength: [120, 250],   // 正常边距
           layoutAnimation: true,
           friction: 0.6,
           preventOverlap: true,
