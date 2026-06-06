@@ -297,17 +297,77 @@ export const useScriptStore = defineStore('script', () => {
     }
   }
 
+  function updateBeatStageDirection(sceneId: number, beatIndex: number, value: string) {
+    if (!scriptData.value) return
+    const scene = scriptData.value.scenes.find(s => s.id === sceneId)
+    if (scene && scene.beats[beatIndex]) {
+      const oldVal = scene.beats[beatIndex].stage_direction || ''
+      // 移除 🎬 前缀（如果用户编辑后保留）
+      const cleaned = value.replace(/^🎬\s*/, '')
+      scene.beats[beatIndex].stage_direction = cleaned || undefined
+      pushModification(`scene:${sceneId}:beat:${beatIndex}`, 'stage_direction', oldVal, cleaned, 'manual')
+      syncYamlFromData()
+    }
+  }
+
+  function updateParticipantName(sceneId: number, beatIndex: number, characterId: string, name: string) {
+    if (!scriptData.value) return
+    const scene = scriptData.value.scenes.find(s => s.id === sceneId)
+    if (scene && scene.beats[beatIndex]?.participants) {
+      const p = scene.beats[beatIndex].participants!.find(p => p.character_id === characterId)
+      if (p) {
+        const oldVal = p.character_id || ''
+        p.character_id = name || oldVal
+        pushModification(`scene:${sceneId}:beat:${beatIndex}:participant:${characterId}`, 'name', oldVal, name, 'manual')
+        syncYamlFromData()
+      }
+    }
+  }
+
+  function updateParticipantDialogue(sceneId: number, beatIndex: number, characterId: string, dialogue: string) {
+    if (!scriptData.value) return
+    const scene = scriptData.value.scenes.find(s => s.id === sceneId)
+    if (scene && scene.beats[beatIndex]?.participants) {
+      const p = scene.beats[beatIndex].participants!.find(p => p.character_id === characterId)
+      if (p) {
+        const oldVal = p.dialogue || ''
+        p.dialogue = dialogue || undefined
+        pushModification(`scene:${sceneId}:beat:${beatIndex}:participant:${characterId}`, 'dialogue', oldVal, dialogue, 'manual')
+        syncYamlFromData()
+      }
+    }
+  }
+
   /** 选择备选项 — 同时同步备选方案的 emotion 到 beat */
   function selectAlternative(sceneId: number, beatIndex: number, altIndex: number) {
     if (!scriptData.value) return
     const scene = scriptData.value.scenes.find(s => s.id === sceneId)
     if (scene && scene.beats[beatIndex]) {
       const beat = scene.beats[beatIndex]
+
+      // altIndex === -1 表示选择"方案1（当前）"，恢复原始内容
+      if (altIndex === -1) {
+        // 从 _originalContent 恢复，或重置 selected 为 0
+        const origContent = (beat as any)._originalContent
+        if (origContent !== undefined) {
+          pushModification(`scene:${sceneId}:beat:${beatIndex}`, 'content', beat.content, origContent, 'alternative')
+          beat.content = origContent
+        }
+        beat.selected = 0
+        syncYamlFromData()
+        return
+      }
+
       if (altIndex >= 0 && altIndex < beat.alternatives.length) {
+        // 首次切换时保存原始内容
+        if ((beat as any)._originalContent === undefined) {
+          ;(beat as any)._originalContent = beat.content
+        }
+
         const oldVal = beat.content
         const oldEmotion = beat.emotion || ''
         const selectedAlt = beat.alternatives[altIndex]
-        beat.selected = altIndex
+        beat.selected = altIndex + 1  // +1 因为方案1=selected=0
         beat.content = selectedAlt.content
         // 同步备选方案的情绪到节拍
         if (selectedAlt.emotion !== undefined) {
@@ -624,6 +684,9 @@ export const useScriptStore = defineStore('script', () => {
     updateBeatType,
     updateBeatSpeaker,
     updateBeatEmotion,
+    updateBeatStageDirection,
+    updateParticipantName,
+    updateParticipantDialogue,
     selectAlternative,
     addCustomAlternative,
     removeAlternative,

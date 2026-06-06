@@ -257,37 +257,49 @@
         <span class="absolute inset-y-0 left-1/2 -translate-x-1/2 w-[3px] h-8 my-auto rounded-full bg-slate-600 group-hover:bg-indigo-400 transition-colors opacity-0 group-hover:opacity-100"></span>
       </div>
 
-      <!-- 中间区域：场景卡片列表（自适应宽度） -->
-      <main class="flex-1 overflow-auto p-4 space-y-4">
-        <template v-for="(scene, si) in scriptStore.scenes" :key="scene.id">
-          <!-- 章节分隔线 -->
-          <div v-if="shouldShowChapterHeader(si)" class="chapter-separator -mx-4 px-4 py-3 bg-slate-800/60 border-y border-slate-700/30 sticky top-0 z-10">
-            <h3 class="text-base font-semibold text-white">{{ getChapterTitle(scene.chapter_id) }}</h3>
-            <span v-if="getChapterPlotLine(scene.chapter_id)" class="plot-line-tag text-xs px-2 py-0.5 rounded-full bg-indigo-500/15 text-indigo-300 mt-1 inline-block">
-              {{ getChapterPlotLine(scene.chapter_id) }}
-            </span>
-          </div>
-          <SceneCard
-          :scene="scene"
-          :is-active="scriptStore.currentSceneId === scene.id"
-          :active-beat-index="scriptStore.currentBeatIndex"
-          :is-regenerating="!!scriptStore.isRegenerating(String(scene.id))"
-          @update-field="(field, value) => updateSceneField(scene.id, field as any, value)"
-          @update-beat="(idx, content) => handleUpdateBeat(scene.id, idx, content)"
-          @update-beat-type="(idx, newType) => handleUpdateBeatType(scene.id, idx, newType)"
-          @update-speaker="(idx, speaker) => handleUpdateSpeaker(scene.id, idx, speaker)"
-          @update-emotion="(idx, emotion) => handleUpdateEmotion(scene.id, idx, emotion)"
-          @select-alt="(idx, altIdx) => handleSelectAlt(scene.id, idx, altIdx)"
-          @remove-alt="(idx, altIdx) => scriptStore.removeAlternative(scene.id, idx, altIdx)"
-          @add-alt="(idx, content, opts) => scriptStore.addCustomAlternative(scene.id, idx, content, opts)"
-          @add-beat="handleAddBeat(scene.id)"
-          @delete-beat="(idx) => handleDeleteBeat(scene.id, idx)"
-          @delete-scene="handleDeleteScene(scene.id)"
-          @ai-regenerate-scene="() => handleAIRegenerateScene(scene.id)"
-          @ai-regenerate-beat="(idx) => handleAIRegenerateBeat(scene.id, idx)"
-          @move-beat="(idx, dir) => scriptStore.moveBeat(scene.id, idx, dir)"
-          @toggle-history="(idx) => showHistoryPanel(scene.id, idx)"
-          />
+      <!-- 中间区域：按章节分组的场景卡片列表（自适应宽度） -->
+      <main ref="scrollContainerRef" class="flex-1 overflow-auto p-4 space-y-6">
+        <template v-for="(group, gi) in chapterSceneGroups" :key="group.chapterId">
+          <ChapterCard
+            :chapter-id="group.chapterId"
+            :title="group.chapterTitle"
+            :chapter-index="gi + 1"
+            :summary="group.summary"
+            :plot-line="group.plotLine"
+            :scene-count="group.scenes.length"
+            :total-beats="group.totalBeats"
+            :default-expanded="true"
+          >
+            <!-- 展开模式：渲染全部场景 -->
+            <div class="space-y-4">
+              <SceneCard
+                v-for="(scene, si) in group.scenes"
+                :key="scene.id"
+                :scene="scene"
+                :is-active="scriptStore.currentSceneId === scene.id"
+                :active-beat-index="scriptStore.currentBeatIndex"
+                :is-regenerating="!!scriptStore.isRegenerating(String(scene.id))"
+                @update-field="(field, value) => updateSceneField(scene.id, field as any, value)"
+                @update-beat="(idx, content) => handleUpdateBeat(scene.id, idx, content)"
+                @update-beat-type="(idx, newType) => handleUpdateBeatType(scene.id, idx, newType)"
+                @update-speaker="(idx, speaker) => handleUpdateSpeaker(scene.id, idx, speaker)"
+                @update-emotion="(idx, emotion) => handleUpdateEmotion(scene.id, idx, emotion)"
+                @select-alt="(idx, altIdx) => handleSelectAlt(scene.id, idx, altIdx)"
+                @remove-alt="(idx, altIdx) => scriptStore.removeAlternative(scene.id, idx, altIdx)"
+                @add-alt="(idx, content, opts) => scriptStore.addCustomAlternative(scene.id, idx, content, opts)"
+                @add-beat="handleAddBeat(scene.id)"
+                @delete-beat="(idx) => handleDeleteBeat(scene.id, idx)"
+                @delete-scene="handleDeleteScene(scene.id)"
+                @ai-regenerate-scene="() => handleAIRegenerateScene(scene.id)"
+                @ai-regenerate-beat="(idx) => handleAIRegenerateBeat(scene.id, idx)"
+                @move-beat="(idx, dir) => scriptStore.moveBeat(scene.id, idx, dir)"
+                @toggle-history="(idx) => showHistoryPanel(scene.id, idx)"
+                @update-beat-stage-direction="(idx, val) => handleUpdateBeatStageDirection(scene.id, idx, val)"
+                @update-participant-name="(idx, charId, name) => scriptStore.updateParticipantName(scene.id, idx, charId, name)"
+                @update-participant-dialogue="(idx, charId, dialogue) => scriptStore.updateParticipantDialogue(scene.id, idx, charId, dialogue)"
+              />
+            </div>
+          </ChapterCard>
         </template>
 
         <!-- 修改历史面板（覆盖层） -->
@@ -891,6 +903,7 @@ const loadError = ref('')
 
 // 章节导航状态
 const activeChapterId = ref<string>('')
+const scrollContainerRef = ref<HTMLElement>()
 
 // 保存相关状态
 const currentScriptId = ref<string>('')
@@ -989,6 +1002,48 @@ function truncate(text: string, maxLen: number): string {
   return text.slice(0, maxLen) + '...'
 }
 
+// ==================== 章节分组（按章节聚合场景） ====================
+
+/** 按章节将场景分组，用于渲染章节卡片 */
+const chapterSceneGroups = computed(() => {
+  const groups: Array<{
+    chapterId: string
+    chapterTitle: string
+    summary: string
+    plotLine: string
+    scenes: typeof scriptStore.scenes
+    totalBeats: number
+  }> = []
+
+  const processedChapters = new Set<string>()
+
+  for (const scene of scriptStore.scenes) {
+    const chId = scene.chapter_id || '_ungrouped'
+    if (processedChapters.has(chId)) {
+      // 已有该章的 group，追加 scene
+      const g = groups.find(g => g.chapterId === chId)
+      if (g) {
+        g.scenes.push(scene)
+        g.totalBeats += scene.beats?.length || 0
+      }
+      continue
+    }
+
+    processedChapters.add(chId)
+    const ch = scriptStore.chapters.find(c => c.id === chId)
+    groups.push({
+      chapterId: chId,
+      chapterTitle: ch?.title || chId,
+      summary: ch?.summary || '',
+      plotLine: ch?.plot_lines?.[0] || ch?.plot_line || '',
+      scenes: [scene],
+      totalBeats: scene.beats?.length || 0,
+    })
+  }
+
+  return groups
+})
+
 // ==================== 章节导航辅助函数 ====================
 
 /** 获取章节标题 */
@@ -1024,9 +1079,17 @@ function getChapterBeatCount(ch: { id: string; scene_ids: number[] }): number {
   }, 0)
 }
 
-/** 点击章节项滚动到对应场景 */
+/** 点击章节项滚动到对应章节卡片 */
 function scrollToChapter(ch: { id: string; scene_ids: number[] }) {
   activeChapterId.value = ch.id
+  // 滚动到对应章节的 sticky header
+  const container = scrollContainerRef.value
+  if (container) {
+    const headerEl = container.querySelector(`[data-chapter-id="${ch.id}"]`)
+    if (headerEl) {
+      headerEl.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    }
+  }
   if (ch.scene_ids.length > 0) {
     scriptStore.currentSceneId = ch.scene_ids[0]
   }
@@ -1653,6 +1716,11 @@ function handleUpdateSpeaker(sceneId: number, beatIndex: number, speaker: string
 
 function handleUpdateEmotion(sceneId: number, beatIndex: number, emotion: string) {
   scriptStore.updateBeatEmotion(sceneId, beatIndex, emotion)
+  emitScriptUpdate()
+}
+
+function handleUpdateBeatStageDirection(sceneId: number, beatIndex: number, value: string) {
+  scriptStore.updateBeatStageDirection(sceneId, beatIndex, value)
   emitScriptUpdate()
 }
 

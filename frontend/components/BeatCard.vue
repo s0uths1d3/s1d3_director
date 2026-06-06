@@ -134,10 +134,10 @@
       ref="editorRef"
     ></div>
 
-    <!-- ===== 备选项选择区（始终显示，方案1=当前内容） ===== -->
-    <div class="mt-2 pt-2 border-t border-slate-700/20">
+    <!-- ===== 多方案时：显示备选项选择区 ===== -->
+    <div v-if="hasMultipleAlternatives" class="mt-2 pt-2 border-t border-slate-700/20">
       <div class="flex items-center justify-between mb-1.5">
-        <span class="text-[10px] text-slate-500">备选方案 ({{ (beat.alternatives?.length || 0) + 1 }})</span>
+        <span class="text-[10px] text-slate-500">备选方案 ({{ totalAltCount }})</span>
         <button
           @click="showAddAltForm = !showAddAltForm"
           class="text-[10px] text-slate-500 hover:text-indigo-300 transition-colors"
@@ -180,38 +180,51 @@
           </button>
         </template>
       </div>
+    </div>
 
-      <!-- 自定义方案添加表单 -->
-      <div v-if="showAddAltForm" class="mt-2 p-2.5 rounded-lg bg-slate-900/60 border border-slate-700/40 space-y-2">
-        <input
-          v-model="newAltName"
-          placeholder="方案名称（可选）"
-          class="w-full px-2 py-1 text-xs bg-slate-800 border border-slate-600/50 rounded text-slate-200 placeholder-slate-600 outline-none focus:border-indigo-500 transition-colors"
-          @keydown.enter="confirmAddAlt"
-        />
-        <input
-          v-model="newAltEmotion"
-          placeholder="关联情绪（可选）"
-          class="w-full px-2 py-1 text-xs bg-slate-800 border border-slate-600/50 rounded text-slate-200 placeholder-slate-600 outline-none focus:border-indigo-500 transition-colors"
-          @keydown.enter="confirmAddAlt"
-        />
-        <textarea
-          v-model="newAltContent"
-          placeholder="方案内容..."
-          rows="2"
-          class="w-full px-2 py-1.5 text-xs bg-slate-800 border border-slate-600/50 rounded text-slate-200 placeholder-slate-600 outline-none focus:border-indigo-500 transition-colors resize-none"
-        ></textarea>
-        <div class="flex justify-end gap-2">
-          <button
-            @click="showAddAltForm = false; resetAltForm()"
-            class="px-2.5 py-1 text-[10px] text-slate-400 hover:text-slate-200 transition-colors"
-          >取消</button>
-          <button
-            @click="confirmAddAlt"
-            :disabled="!newAltContent.trim()"
-            class="px-2.5 py-1 text-[10px] font-medium rounded bg-indigo-600 text-white hover:bg-indigo-500 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-          >确认</button>
-        </div>
+    <!-- ===== 仅1个方案时：右下角显示"添加方案"按钮 ===== -->
+    <div v-else class="flex justify-end mt-1">
+      <button
+        @click="showAddAltForm = true"
+        class="text-[10px] text-slate-600 hover:text-indigo-400 transition-colors flex items-center gap-1 px-2 py-1 rounded-md hover:bg-slate-700/30"
+      >
+        <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
+        </svg>
+        添加方案
+      </button>
+    </div>
+
+    <!-- ===== 共享：自定义方案添加表单（点击"添加方案"/"+ 自定义"后显示） ===== -->
+    <div v-if="showAddAltForm" class="mt-2 p-2.5 rounded-lg bg-slate-900/60 border border-slate-700/40 space-y-2">
+      <input
+        v-model="newAltName"
+        placeholder="方案名称（可选）"
+        class="w-full px-2 py-1 text-xs bg-slate-800 border border-slate-600/50 rounded text-slate-200 placeholder-slate-600 outline-none focus:border-indigo-500 transition-colors"
+        @keydown.enter="confirmAddAlt"
+      />
+      <input
+        v-model="newAltEmotion"
+        placeholder="关联情绪（可选）"
+        class="w-full px-2 py-1 text-xs bg-slate-800 border border-slate-600/50 rounded text-slate-200 placeholder-slate-600 outline-none focus:border-indigo-500 transition-colors"
+        @keydown.enter="confirmAddAlt"
+      />
+      <textarea
+        v-model="newAltContent"
+        placeholder="方案内容..."
+        rows="2"
+        class="w-full px-2 py-1.5 text-xs bg-slate-800 border border-slate-600/50 rounded text-slate-200 placeholder-slate-600 outline-none focus:border-indigo-500 transition-colors resize-none"
+      ></textarea>
+      <div class="flex justify-end gap-2">
+        <button
+          @click="showAddAltForm = false; resetAltForm()"
+          class="px-2.5 py-1 text-[10px] text-slate-400 hover:text-slate-200 transition-colors"
+        >取消</button>
+        <button
+          @click="confirmAddAlt"
+          :disabled="!newAltContent.trim()"
+          class="px-2.5 py-1 text-[10px] font-medium rounded bg-indigo-600 text-white hover:bg-indigo-500 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+        >确认</button>
       </div>
     </div>
   </div>
@@ -310,6 +323,17 @@ const typeBadgeClass = computed(() =>
 
 const typeBorderClass = computed(() =>
   typeConfig[props.beat.type]?.borderClass || 'border-l-2 border-l-slate-600'
+)
+
+// ---- 备选方案判断 ----
+/** 是否存在多个方案（即有 alternatives 数据） */
+const hasMultipleAlternatives = computed(() =>
+  (props.beat.alternatives?.length || 0) > 0
+)
+
+/** 总方案数 = 1(当前) + alternatives.length */
+const totalAltCount = computed(() =>
+  1 + (props.beat.alternatives?.length || 0)
 )
 
 // ---- 类型切换 ----

@@ -134,24 +134,47 @@
       <div v-show="isExpanded" ref="contentRef" class="overflow-hidden">
         <div class="divide-y divide-slate-700/20">
           <template v-for="(beat, idx) in scene.beats" :key="idx">
-            <!-- 群戏 beat（多个参与者）— 聊天式布局 -->
+            <!-- 群戏 beat（多个参与者）— 聊天式布局，支持内联编辑 -->
             <div v-if="isGroupBeat(beat)" class="beat-group px-4 py-3 bg-slate-800/20">
-              <!-- 舞台指示 -->
-              <div v-if="beat.stage_direction" class="stage-direction text-xs text-amber-400/80 italic mb-2 pl-3 border-l-2 border-amber-500/30">
-                🎬 {{ beat.stage_direction }}
-              </div>
+              <!-- 节拍内容（动作描述等）— 可编辑 -->
+              <div
+                v-if="beat.content && beat.type !== 'dialogue' && beat.type !== 'monologue'"
+                contenteditable="true"
+                :data-placeholder="'输入节拍内容...'"
+                @blur="(e) => emit('update-beat', idx, (e.target as HTMLElement).textContent?.trim() || '')"
+                class="text-sm text-slate-200 leading-relaxed outline-none min-h-[20px] empty:before:content-[attr(data-placeholder)] empty:before:text-slate-600 empty:before:text-xs focus:empty:before:text-slate-500 break-words mb-2 rounded px-1 -mx-1 cursor-text hover:bg-slate-700/30 focus:bg-slate-700/50 focus:ring-1 focus:ring-indigo-500/30 transition-all duration-150"
+              >{{ resolveContentPlaceholders(beat.content) }}</div>
+
+              <!-- 舞台指示 — 可编辑 -->
+              <div
+                v-if="beat.stage_direction"
+                contenteditable="true"
+                data-placeholder="输入舞台指示..."
+                @blur="(e) => { const val = (e.target as HTMLElement).textContent?.trim() || ''; emit('update-beat-stage-direction', idx, val) }"
+                class="stage-direction text-xs text-amber-400/80 italic mb-2 pl-3 border-l-2 border-amber-500/30 outline-none min-h-[20px] empty:before:content-[attr(data-placeholder)] empty:before:text-amber-700 empty:before:text-xs focus:empty:before:text-amber-500/50 rounded pr-1 cursor-text hover:bg-slate-700/20 focus:bg-slate-700/40 focus:ring-1 focus:ring-amber-500/30 transition-all duration-150"
+              >🎬 {{ beat.stage_direction }}</div>
               <!-- 参与者列表 -->
               <div class="space-y-1.5">
                 <div v-for="p in beat.participants" :key="p.character_id"
                      class="participant-line flex items-start gap-2 text-sm min-w-0"
                      :class="'role-' + p.role">
-                  <span class="participant-name font-medium min-w-0 truncate"
+                  <!-- 角色名 — 可编辑 -->
+                  <span
+                    contenteditable="true"
+                    @blur="(e) => { emit('update-participant-name', idx, p.character_id, (e.target as HTMLElement).textContent?.trim() || '') }"
+                    class="participant-name font-medium min-w-0 truncate outline-none rounded px-0.5 -mx-0.5 cursor-text hover:bg-slate-700/40 focus:bg-slate-700/60 focus:ring-1 focus:ring-indigo-500/30 transition-all duration-150"
                     :class="{
                       'text-blue-300': p.role === 'speaker',
                       'text-slate-400': p.role === 'listener',
                       'text-slate-500': p.role === 'observer',
                     }">{{ getCharacterName(p.character_id) }}</span>
-                  <span v-if="p.dialogue" class="participant-dialogue text-slate-200">: {{ resolveContentPlaceholders(p.dialogue) }}</span>
+                  <!-- 台词 — 可编辑 -->
+                  <span
+                    v-if="p.dialogue"
+                    contenteditable="true"
+                    @blur="(e) => { emit('update-participant-dialogue', idx, p.character_id, (e.target as HTMLElement).textContent?.trim() || '') }"
+                    class="participant-dialogue text-slate-200 outline-none rounded px-0.5 -mx-0.5 min-w-0 cursor-text hover:bg-slate-700/30 focus:bg-slate-700/50 focus:ring-1 focus:ring-indigo-500/30 transition-all duration-150"
+                  >: {{ resolveContentPlaceholders(p.dialogue) }}</span>
                   <span v-else class="participant-role-hint text-slate-600 text-xs italic">({{ p.role === 'speaker' ? '说话' : p.role === 'listener' ? '倾听' : '观察' }})</span>
                 </div>
               </div>
@@ -233,12 +256,15 @@ const props = withDefaults(defineProps<Props>(), {
 const emit = defineEmits<{
   'update-field': [field: string, value: any]
   'update-beat': [beatIndex: number, content: string]
+  'update-beat-stage-direction': [beatIndex: number, value: string]
   'update-beat-type': [beatIndex: number, newType: string]
   'update-speaker': [beatIndex: number, speaker: string]
   'update-emotion': [beatIndex: number, emotion: string]
   'select-alt': [beatIndex: number, altIndex: number]
   'remove-alt': [beatIndex: number, altIndex: number]
   'add-alt': [beatIndex: number, content: string, options?: { name?: string; emotion?: string }]
+  'update-participant-name': [beatIndex: number, characterId: string, name: string]
+  'update-participant-dialogue': [beatIndex: number, characterId: string, dialogue: string]
   'add-beat': []
   'delete-beat': [beatIndex: number]
   'delete-scene': []
