@@ -124,6 +124,7 @@ const isExpanded = ref(props.defaultExpanded)
 const contentRef = ref<HTMLElement>()
 const innerContentRef = ref<HTMLElement>()
 const contentHeightPx = ref('0px')
+let resizeObserver: ResizeObserver | null = null
 
 // ==================== 方法 ====================
 
@@ -150,9 +151,23 @@ function measureContentHeight() {
 onMounted(() => {
   if (isExpanded.value) measureContentHeight()
   window.addEventListener('resize', onResize)
+
+  // 用 ResizeObserver 监听内容区域尺寸变化（SceneCard 内容动态改变时自动更新高度）
+  if (innerContentRef.value) {
+    resizeObserver = new ResizeObserver(() => {
+      if (isExpanded.value) measureContentHeight()
+    })
+    resizeObserver.observe(innerContentRef.value)
+  }
 })
 
-onUnmounted(() => window.removeEventListener('resize', onResize))
+onUnmounted(() => {
+  window.removeEventListener('resize', onResize)
+  if (resizeObserver) {
+    resizeObserver.disconnect()
+    resizeObserver = null
+  }
+})
 
 let resizeTimer: ReturnType<typeof setTimeout> | null = null
 function onResize() {
@@ -170,6 +185,17 @@ watch(
 watch(isExpanded, (val) => {
   if (val) nextTick(measureContentHeight)
 })
+
+// innerContentRef 可能在 mount 时为空（异步 slot），watch 补充设置
+watch(innerContentRef, (el) => {
+  if (el && !resizeObserver) {
+    resizeObserver = new ResizeObserver(() => {
+      if (isExpanded.value) measureContentHeight()
+    })
+    resizeObserver.observe(el)
+    if (isExpanded.value) measureContentHeight()
+  }
+}, { immediate: true })
 </script>
 
 <style scoped>

@@ -38,7 +38,7 @@
             :value="scene.time ?? ''"
             @blur="editingTime = false; if (!scene.time) emit('update-field', 'time', '')"
             @input.stop="(e: Event) => emit('update-field', 'time', (e.target as HTMLInputElement).value)"
-            class="text-xs bg-transparent text-slate-400 border-b border-slate-600/50 focus:border-indigo-400 outline-none px-1 w-24 min-w-0 placeholder:text-slate-600"
+            class="text-xs bg-transparent text-slate-400 border-b border-slate-600/50 focus:border-indigo-400 outline-none px-1 w-20 shrink-0 placeholder:text-slate-600"
             placeholder="时间"
             title="点击编辑时间"
           />
@@ -55,26 +55,6 @@
           <span v-if="!isExpanded" class="text-[10px] text-slate-500 mr-1">
             {{ scene.beats.length }} 个节拍
           </span>
-
-          <!-- AI 重生成整场按钮 -->
-          <button
-            v-if="!isRegenerating"
-            @click.stop="emit('ai-regenerate-scene')"
-            class="flex items-center gap-1 px-2 py-1 text-[10px] rounded-md text-emerald-400/70 hover:text-emerald-300 hover:bg-emerald-500/10 transition-all"
-            title="AI 重生成整场内容"
-          >
-            <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-            </svg>
-            AI 重生
-          </button>
-          <div v-else class="flex items-center gap-1 px-2 py-1 text-[10px] rounded-md bg-emerald-500/10 text-emerald-400">
-            <svg class="animate-spin w-3 h-3" fill="none" viewBox="0 0 24 24">
-              <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-              <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-            </svg>
-            AI 生成中...
-          </div>
 
           <!-- 删除场景 -->
           <button
@@ -101,7 +81,7 @@
           </div>
 
           <!-- 情绪强度滑块 -->
-          <div class="flex items-center gap-2 flex-1 max-w-xs">
+          <div class="flex items-center gap-2 flex-1 min-w-0">
             <span class="text-[10px] text-slate-500 whitespace-nowrap">情绪强度</span>
             <input
               type="range"
@@ -159,14 +139,14 @@
               <!-- 参与者列表 -->
               <div class="space-y-1.5">
                 <div v-for="p in beat.participants" :key="p.character_id"
-                     class="participant-line flex items-start gap-2 text-sm min-w-0"
+                     class="participant-line flex items-start gap-2 text-sm"
                      :class="'role-' + p.role">
                   <!-- 角色名 — 可编辑 -->
                   <span
                     contenteditable="true"
                     @blur="(e) => { emit('update-participant-name', idx, p.character_id, (e.target as HTMLElement).textContent?.trim() || '') }"
                     @paste="handlePaste"
-                    class="participant-name font-medium min-w-0 truncate outline-none rounded px-0.5 -mx-0.5 cursor-text hover:bg-slate-700/40 focus:bg-slate-700/60 focus:ring-1 focus:ring-indigo-500/30 transition-all duration-150"
+                    class="participant-name font-medium shrink-0 outline-none rounded px-0.5 -mx-0.5 cursor-text hover:bg-slate-700/40 focus:bg-slate-700/60 focus:ring-1 focus:ring-indigo-500/30 transition-all duration-150"
                     :class="{
                       'text-blue-300': p.role === 'speaker',
                       'text-slate-400': p.role === 'listener',
@@ -178,7 +158,7 @@
                     contenteditable="true"
                     @blur="(e) => { emit('update-participant-dialogue', idx, p.character_id, (e.target as HTMLElement).textContent?.trim() || '') }"
                     @paste="handlePaste"
-                    class="participant-dialogue text-slate-200 outline-none rounded px-0.5 -mx-0.5 min-w-0 max-h-[150px] overflow-y-auto cursor-text hover:bg-slate-700/30 focus:bg-slate-700/50 focus:ring-1 focus:ring-indigo-500/30 transition-all duration-150 whitespace-pre-wrap inline-block align-top"
+                    class="participant-dialogue text-slate-200 outline-none rounded px-0.5 -mx-0.5 flex-1 min-w-0 max-h-[150px] overflow-y-auto cursor-text hover:bg-slate-700/30 focus:bg-slate-700/50 focus:ring-1 focus:ring-indigo-500/30 transition-all duration-150 whitespace-pre-wrap"
                   >: {{ resolveContentPlaceholders(p.dialogue) }}</div>
                   <span v-else class="participant-role-hint text-slate-600 text-xs italic">({{ p.role === 'speaker' ? '说话' : p.role === 'listener' ? '倾听' : '观察' }})</span>
                 </div>
@@ -186,6 +166,67 @@
               <!-- 情节线标签 -->
               <div v-if="beat.plot_line_tags?.length" class="flex gap-1 mt-2 pt-2 border-t border-slate-700/20">
                 <span v-for="tag in beat.plot_line_tags" :key="tag" class="text-[10px] px-1.5 py-0.5 rounded bg-purple-500/10 text-purple-300">{{ tag }}</span>
+              </div>
+              <!-- AI 操作按钮行（群戏节拍）— 纯图标，hover 显示 tooltip -->
+              <div class="flex items-center justify-end gap-1 mt-2 pt-2 border-t border-slate-700/15">
+                <!-- 上移 -->
+                <button
+                  @click="$emit('move-beat', idx, 'up')"
+                  class="p-1 rounded text-slate-500 hover:text-slate-300 hover:bg-slate-700/50 transition-all"
+                  title="上移"
+                >
+                  <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 15l7-7 7 7"/></svg>
+                </button>
+                <!-- 下移 -->
+                <button
+                  @click="$emit('move-beat', idx, 'down')"
+                  class="p-1 rounded text-slate-500 hover:text-slate-300 hover:bg-slate-700/50 transition-all"
+                  title="下移"
+                >
+                  <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
+                </button>
+                <!-- AI 重生（图标） -->
+                <button
+                  @click="$emit('ai-regenerate-beat', idx)"
+                  class="p-1 rounded text-slate-500 hover:text-indigo-400 hover:bg-indigo-500/10 transition-all"
+                  :class="regeneratingBeatIdx === `${scene.id}:${idx}` ? 'text-indigo-400 animate-pulse' : ''"
+                  title="AI 重新生成此节拍"
+                >
+                  <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                  </svg>
+                </button>
+                <!-- 历史记录 -->
+                <button
+                  @click="$emit('toggle-history', idx)"
+                  class="p-1 rounded text-slate-500 hover:text-amber-400 hover:bg-amber-500/10 transition-all"
+                  title="修改历史"
+                >
+                  <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                </button>
+                <!-- 备选方案（图标） -->
+                <button
+                  @click="$emit('ai-alternatives-beat', idx)"
+                  class="p-1 rounded text-slate-500 hover:text-cyan-400 hover:bg-cyan-500/10 transition-all"
+                  :class="generatingAltsBeatIdx === `${scene.id}:${idx}` ? 'text-cyan-400 animate-pulse' : ''"
+                  title="AI 生成备选方案"
+                >
+                  <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
+                  </svg>
+                </button>
+                <!-- 删除节拍 -->
+                <button
+                  @click="$emit('delete-beat', idx)"
+                  class="p-1 rounded text-slate-500 hover:text-red-400 hover:bg-red-500/10 transition-all"
+                  title="删除此节拍"
+                >
+                  <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
               </div>
             </div>
 
@@ -197,6 +238,7 @@
               :beat="beat"
               :is-active="isActive && activeBeatIndex === idx"
               :is-regenerating="regeneratingBeatIdx === `${scene.id}:${idx}`"
+              :is-generating-alts="generatingAltsBeatIdx === `${scene.id}:${idx}`"
               @update-content="(content) => emit('update-beat', idx, content)"
               @update-type="(newType) => emit('update-beat-type', idx, newType)"
               @update-speaker="(speaker) => emit('update-speaker', idx, speaker)"
@@ -206,6 +248,7 @@
               @add-alt="(content, opts) => emit('add-alt', idx, content, opts)"
               @delete="emit('delete-beat', idx)"
               @ai-regenerate="() => emit('ai-regenerate-beat', idx)"
+              @ai-alternatives="() => emit('ai-alternatives-beat', idx)"
               @move-up="() => emit('move-beat', idx, 'up')"
               @move-down="() => emit('move-beat', idx, 'down')"
               @toggle-history="() => emit('toggle-history', idx)"
@@ -246,6 +289,8 @@ interface Props {
   isRegenerating?: boolean
   /** 正在生成的 beat key (sceneId:beatIndex) */
   regeneratingBeatIdx?: string
+  /** 正在生成备选方案的 beat key (sceneId:beatIndex) */
+  generatingAltsBeatIdx?: string
   /** 默认是否展开 */
   defaultExpanded?: boolean
 }
@@ -255,6 +300,7 @@ const props = withDefaults(defineProps<Props>(), {
   activeBeatIndex: -1,
   isRegenerating: false,
   regeneratingBeatIdx: '',
+  generatingAltsBeatIdx: '',
   defaultExpanded: true,
 })
 
@@ -275,6 +321,7 @@ const emit = defineEmits<{
   'delete-scene': []
   'ai-regenerate-scene': []
   'ai-regenerate-beat': [beatIndex: number]
+  'ai-alternatives-beat': [beatIndex: number]
   'move-beat': [beatIndex: number, direction: 'up' | 'down']
   'toggle-history': [beatIndex: number]
 }>()

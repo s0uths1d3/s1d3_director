@@ -15,13 +15,13 @@
         class="min-h-[80px] max-h-[160px] overflow-auto rounded-md p-2.5 text-sm leading-relaxed"
         :class="beatTypeClass"
       >
-        <div v-if="currentBeat.speaker" class="text-xs font-semibold text-purple-400 mb-1">
-          {{ currentBeat.speaker }}
+        <div v-if="resolvedSpeaker" class="text-xs font-semibold text-purple-400 mb-1">
+          {{ resolvedSpeaker }}
           <span v-if="currentBeat.emotion" class="ml-1.5 text-[10px] text-slate-500 font-normal">
             [{{ currentBeat.emotion }}]
           </span>
         </div>
-        <p class="text-slate-200 whitespace-pre-wrap break-words">{{ currentBeat.content }}</p>
+        <p class="text-slate-200 whitespace-pre-wrap break-words">{{ resolvedContent }}</p>
       </div>
     </div>
 
@@ -215,7 +215,7 @@ async function playLoop() {
 
     // 如果开启了 TTS，等 TTS 读完再切换
     if (ttsEnabled.value && currentBeat.value?.content && 'speechSynthesis' in window) {
-      await speakContent(currentBeat.value.content)
+      await speakContent(resolvedContent.value)
       // 播放过程中可能已被停止或暂停
       if (!autoPlayActive || isPaused) return
     } else {
@@ -255,7 +255,26 @@ function resumeAutoPlay() {
   playLoop() // 恢复播放循环
 }
 
-// 当前播放中的 beat 信息
+// ---- 占位符解析 ----
+
+/** 将 char_00X 占位符替换为实际角色名 */
+function resolvePlaceholders(text: string): string {
+  if (!text) return text
+  return text.replace(/char_(\d{3})/g, (_match, num) => {
+    const charId = `char_${num.padStart(3, '0')}`
+    return scriptStore.getCharacterName(charId)
+  })
+}
+
+const resolvedSpeaker = computed(() => {
+  if (!currentBeat.value?.speaker) return ''
+  return resolvePlaceholders(currentBeat.value.speaker)
+})
+
+const resolvedContent = computed(() => {
+  if (!currentBeat.value?.content) return ''
+  return resolvePlaceholders(currentBeat.value.content)
+})
 const currentBeat = computed(() => {
   const flat = scriptStore.flatBeats
   if (scriptStore.playPosition >= 0 && scriptStore.playPosition < flat.length) {

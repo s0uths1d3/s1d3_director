@@ -209,6 +209,9 @@ pub struct RegenerateRequest {
     /// 完整剧本 YAML（用于上下文感知）
     #[serde(default)]
     pub full_script_yaml: Option<String>,
+    /// 群戏参与者列表（群戏节拍时必填，含 character_id / role / dialogue）
+    #[serde(default)]
+    pub participants: Option<serde_json::Value>,
 }
 
 /// 重生成响应
@@ -235,6 +238,322 @@ pub struct BeatAlternative {
     pub emotion: Option<String>,
 }
 
+/// 备选方案生成请求
+#[derive(Debug, Deserialize)]
+pub struct AlternativesRequest {
+    /// 目标类型：'beat'
+    pub target: String,
+    /// 场景 ID
+    pub scene_id: i32,
+    /// 节拍索引
+    #[serde(default)]
+    pub beat_index: Option<usize>,
+    /// 用户指定的生成方向/意图（可空）
+    #[serde(default)]
+    pub instruction: Option<String>,
+    /// 当前节拍内容
+    #[serde(default)]
+    pub current_content: Option<String>,
+    /// 当前节拍类型
+    #[serde(default)]
+    pub current_type: Option<String>,
+    /// 当前说话角色
+    #[serde(default)]
+    pub speaker: Option<String>,
+    /// 完整剧本 YAML
+    #[serde(default)]
+    pub full_script_yaml: Option<String>,
+    /// 期望生成的备选数量
+    #[serde(default = "default_num_alts")]
+    pub num_alternatives: usize,
+    /// 群戏参与者列表（群戏节拍时必填）
+    #[serde(default)]
+    pub participants: Option<serde_json::Value>,
+}
+
+fn default_num_alts() -> usize { 3 }
+
+/// 备选方案生成响应
+#[derive(Debug, Serialize)]
+pub struct AlternativesResponse {
+    /// 生成的备选方案列表
+    pub alternatives: Vec<BeatAlternative>,
+}
+
+const ALTERNATIVES_SYSTEM_PROMPT: &str =
+    "你是一名专业编剧。用户要求你为剧本中的某个节拍生成多个不同风格或角度的备选版本。\n\
+     要求：\n\
+     1. 每个备选版本必须在保持原意的前提下，从不同角度或风格重新表达\n\
+     2. 保持与原剧本的角色设定、情节发展、世界观一致\n\
+     3. 每个版本的语气、节奏、情感强度应有所区别\n\
+     4. 为每个版本标注其风格/情感特征（tone）\n\
+     5. 返回 JSON 格式结果\n\n\
+     输出格式：\n\
+     {\"alternatives\": [{\"content\": \"备选版本1的内容\", \"name\": \"正式版\", \"tone\": \"正式严肃\", \"emotion\": \"紧张\"}, ...]}";
+
+// ==================== 群戏节拍专用提示词 ====================
+
+/// 群戏节拍 AI 重生成系统提示词
+/// 群戏（group beat）是多人同时参与的场景，每个参与者有独立的角色（speaker/listener/observer）和对话内容
+const GROUP_BEAT_REGENERATE_SYSTEM_PROMPT: &str =
+    "你是一名专业编剧，擅长处理多人群戏场景的改写。用户要求你重新生成一个【群戏节拍】。\n\n\
+     **群戏节拍的独特结构**：\n\
+     - 一个群戏节拍包含多个参与者（participants），每人有 character_id、role（speaker/listener/observer）、dialogue\n\
+     - speaker 是当前发言者，listener 在倾听/反应，observer 在旁观\n\
+     - 节拍的 content 字段通常是对整体氛围或动作的概括性描述\n\
+     - 每个参与者的 dialogue 是该角色的具体台词/动作\n\n\
+     **重写要求**：\n\
+     1. 必须保持所有参与者的角色设定、性格特征不变\n\
+     2. 每个参与者的对话必须符合其 role 定位（speaker 主动发言、listener 反应式回应、observer 旁白式观察）\n\
+     3. 多人对话之间要有自然的互动感和节奏感（抢话、沉默、打断等真实细节）\n\
+     4. 保持与原剧本情节发展、世界观一致\n\
+     5. 生成的内容应自然衔接前后文\n\n\
+     **输出格式（必须严格遵循）**：\n\
+     返回 JSON：\n\
+     {\n\
+       \"content\": \"对整个群戏节拍的概括性描述（动作/氛围）\",\n\
+       \"participants\": [\n\
+         {\"character_id\": \"char_XXX\", \"role\": \"speaker\", \"dialogue\": \"该角色的台词\"},\n\
+         {\"character_id\": \"char_YYY\", \"role\": \"listener\", \"dialogue\": \"该角色的反应台词\"}\n\
+       ],\n\
+       \"alternatives\": [{\"content\": \"备选概括\", \"participants\": [...], \"tone\": \"风格描述\"}]\n\
+     }";
+
+/// 群戏节拍 AI 备选方案系统提示词
+const GROUP_BEAT_ALTERNATIVES_SYSTEM_PROMPT: &str =
+    "你是一名专业编剧，擅长为多人群戏场景生成不同风格的备选方案。\n\n\
+     **群戏节拍结构说明**：\n\
+     - 群戏节拍含多个参与者（participants），每人有 character_id、role（speaker/listener/observer）、dialogue\n\
+     - 备选方案必须为每个参与者都提供新的对话内容，不能遗漏任何参与者\n\n\
+     **生成要求**：\n\
+     1. 每个备选方案必须在保持原意和参与者完整的前提下，从不同角度或风格重新表达\n\
+     2. 保持与原剧本的角色设定、情节发展、世界观一致\n\
+     3. 不同方案的语气、节奏、互动模式应有所区别（如：紧张对抗版 / 轻松调侃版 / 压抑沉默版）\n\
+     4. 每个方案中所有 participants 必须完整保留（不可减少或增加参与者）\n\
+     5. 为每个方案标注其风格/情感特征（tone）\n\n\
+     **输出格式（必须严格遵循）**：\n\
+     {\n\
+       \"alternatives\": [\n\
+         {\n\
+           \"content\": \"方案概括描述\",\n\
+           \"name\": \"方案名称\",\n\
+           \"tone\": \"风格描述\",\n\
+           \"emotion\": \"情感基调\",\n\
+           \"participants\": [\n\
+             {\"character_id\": \"char_XXX\", \"role\": \"speaker\", \"dialogue\": \"新台词\"},\n\
+             {\"character_id\": \"char_YYY\", \"role\": \"listener\", \"dialogue\": \"新反应\"}\n\
+           ]\n\
+         },\n\
+         ...\n\
+       ]\n\
+     }";
+
+/// AI 生成备选方案
+pub async fn alternatives(
+    req: &AlternativesRequest,
+    api_key: &str,
+    base_url: &str,
+) -> Result<AlternativesResponse, String> {
+    // Mock 模式
+    if api_key.is_empty() || api_key == "mock" {
+        return Ok(mock_alternatives_response(req));
+    }
+
+    // 判断是否为群戏节拍
+    let is_group_beat = req.participants.as_ref()
+        .map(|p| p.is_array())
+        .unwrap_or(false);
+
+    let instruction = req.instruction.as_deref().unwrap_or(
+        if is_group_beat {
+            "请为这个群戏节拍生成多个不同互动风格的备选版本，每个版本中所有参与者都应有新的对话内容"
+        } else {
+            "请为这个节拍生成多个不同风格的备选版本，每个版本应有独特的语气和表达角度"
+        }
+    );
+
+    // 构建用户消息
+    let mut user_msg = if is_group_beat {
+        format!(
+            "请为以下【群戏节拍】生成 {} 个不同风格的备选版本：\n",
+            req.num_alternatives
+        )
+    } else {
+        format!(
+            "请为以下节拍生成 {} 个不同风格的备选版本：\n",
+            req.num_alternatives
+        )
+    };
+    if let Some(t) = &req.current_type {
+        user_msg.push_str(&format!("- 节拍类型: {}\n", t));
+    }
+    if let Some(s) = &req.speaker {
+        user_msg.push_str(&format!("- 说话人: {}\n", s));
+    }
+    if let Some(c) = &req.current_content {
+        user_msg.push_str(&format!("- 当前内容:\n{}\n", c));
+    }
+    // 群戏节拍：附加参与者信息
+    if let Some(ref pts) = req.participants {
+        if pts.is_array() {
+            user_msg.push_str(&format!(
+                "- 参与者列表:\n{}\n",
+                serde_json::to_string_pretty(pts).unwrap_or_default()
+            ));
+        }
+    }
+    user_msg.push_str(&format!("\n- 生成方向: {}", instruction));
+
+    // 截取上下文
+    if let Some(yaml) = &req.full_script_yaml {
+        let preview_len = yaml.len().min(3000);
+        user_msg.push_str(&format!(
+            "\n\n剧本上下文（前{}字）：\n{}",
+            preview_len,
+            &yaml[..preview_len]
+        ));
+    }
+
+    // 根据是否为群戏选择不同的系统提示词
+    let system_prompt = if is_group_beat {
+        GROUP_BEAT_ALTERNATIVES_SYSTEM_PROMPT
+    } else {
+        ALTERNATIVES_SYSTEM_PROMPT
+    };
+
+    let response = call_deepseek(
+        &user_msg,
+        api_key,
+        base_url,
+        Some(system_prompt),
+        true, // JSON 模式
+        "deepseek-chat",
+    ).await?;
+
+    // 解析响应中的 alternatives 数组
+    let parsed: serde_json::Value = serde_json::from_str(&response)
+        .map_err(|e| format!("解析备选方案 JSON 失败: {}", e))?;
+
+    let alts = parse_alternatives_from_json(&parsed)?;
+
+    tracing::info!(num_alts = alts.len(), "AI 备选方案生成成功");
+
+    Ok(AlternativesResponse { alternatives: alts })
+}
+
+/// 从 JSON 值中提取 alternatives 数组
+fn parse_alternatives_from_json(value: &serde_json::Value) -> Result<Vec<BeatAlternative>, String> {
+    // 直接是数组
+    if let Some(arr) = value.as_array() {
+        return parse_alt_array(arr);
+    }
+
+    // 是对象，找 alternatives 字段
+    if let Some(obj) = value.as_object() {
+        for key in ["alternatives", "alts", "options", "versions"] {
+            if let Some(arr) = obj.get(key).and_then(|v| v.as_array()) {
+                return parse_alt_array(arr);
+            }
+        }
+    }
+
+    // 兜底：将整个值作为单个 content 包装
+    Ok(vec![BeatAlternative {
+        content: value.to_string(),
+        name: None,
+        tone: None,
+        emotion: None,
+    }])
+}
+
+fn parse_alt_array(arr: &[serde_json::Value]) -> Result<Vec<BeatAlternative>, String> {
+    let mut result = Vec::new();
+    for item in arr {
+        match item {
+            serde_json::Value::String(s) => {
+                result.push(BeatAlternative {
+                    content: s.clone(),
+                    name: None,
+                    tone: None,
+                    emotion: None,
+                });
+            }
+            serde_json::Value::Object(obj) => {
+                result.push(BeatAlternative {
+                    content: obj.get("content")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .to_string(),
+                    name: obj.get("name").and_then(|v| v.as_str()).map(String::from),
+                    tone: obj.get("tone").and_then(|v| v.as_str()).map(String::from),
+                    emotion: obj.get("emotion").and_then(|v| v.as_str()).map(String::from),
+                });
+            }
+            _ => {}
+        }
+    }
+    if result.is_empty() {
+        return Err("未找到有效的备选方案数据".to_string());
+    }
+    Ok(result)
+}
+
+fn mock_alternatives_response(req: &AlternativesRequest) -> AlternativesResponse {
+    // 判断是否为群戏节拍
+    let is_group = req.participants.as_ref()
+        .map(|p| p.is_array())
+        .unwrap_or(false);
+
+    if is_group {
+        // 群戏节拍 mock：返回含 participants 的备选方案
+        AlternativesResponse {
+            alternatives: vec![
+                BeatAlternative {
+                    content: "[Mock] 紧张对抗版 — 众人针锋相对，气氛剑拔弩张。".to_string(),
+                    name: Some("紧张对抗版".to_string()),
+                    tone: Some("激烈冲突".to_string()),
+                    emotion: Some("愤怒/紧张".to_string()),
+                },
+                BeatAlternative {
+                    content: "[Mock] 轻松调侃版 — 用幽默化解紧张，人物间互相打趣。".to_string(),
+                    name: Some("轻松调侃版".to_string()),
+                    tone: Some("轻松幽默".to_string()),
+                    emotion: Some("愉快/放松".to_string()),
+                },
+                BeatAlternative {
+                    content: "[Mock] 压抑沉默版 — 沉默中暗流涌动，用动作和眼神代替语言。".to_string(),
+                    name: Some("压抑沉默版".to_string()),
+                    tone: Some("内敛压抑".to_string()),
+                    emotion: Some("沉重/不安".to_string()),
+                },
+            ],
+        }
+    } else {
+        AlternativesResponse {
+            alternatives: vec![
+                BeatAlternative {
+                    content: "[Mock] 备选方案 A — 更正式的表述方式，适合严肃场合的对白。".to_string(),
+                    name: Some("正式版".to_string()),
+                    tone: Some("正式严肃".to_string()),
+                    emotion: Some("沉稳".to_string()),
+                },
+                BeatAlternative {
+                    content: "[Mock] 备选方案 B — 更轻松幽默的表达，增加人物亲和力。".to_string(),
+                    name: Some("轻松版".to_string()),
+                    tone: Some("轻松幽默".to_string()),
+                    emotion: Some("愉快".to_string()),
+                },
+                BeatAlternative {
+                    content: "[Mock] 备选方案 C — 更具冲突感的对白，增强戏剧张力。".to_string(),
+                    name: Some("冲突版".to_string()),
+                    tone: Some("紧张激烈".to_string()),
+                    emotion: Some("愤怒".to_string()),
+                },
+            ],
+        }
+    }
+}
+
 const REGENERATE_SYSTEM_PROMPT: &str =
     "你是一名专业编剧。用户要求你根据其修改意图重新生成剧本中的某个内容。\n\
      要求：\n\
@@ -256,6 +575,11 @@ pub async fn regenerate(
         return Ok(mock_regenerate_response(req));
     }
 
+    // 判断是否为群戏节拍
+    let is_group_beat = req.participants.as_ref()
+        .map(|p| p.is_array())
+        .unwrap_or(false);
+
     // 构建上下文信息
     let mut context_parts = Vec::new();
     context_parts.push(format!("目标类型: {}", req.target));
@@ -263,8 +587,20 @@ pub async fn regenerate(
     if let Some(bi) = req.beat_index {
         context_parts.push(format!("节拍索引: {}", bi));
     }
+    if is_group_beat {
+        context_parts.push("** 注意：这是一个【群戏节拍】，包含多个参与者 **".to_string());
+    }
     if let Some(content) = &req.current_content {
         context_parts.push(format!("当前内容:\n{}", content));
+    }
+    // 群戏节拍：附加参与者信息
+    if let Some(ref pts) = req.participants {
+        if pts.is_array() {
+            context_parts.push(format!(
+                "当前参与者列表:\n{}",
+                serde_json::to_string_pretty(pts).unwrap_or_default()
+            ));
+        }
     }
 
     // 截取完整剧本作为上下文（限制长度避免超 token）
@@ -283,11 +619,18 @@ pub async fn regenerate(
         req.instruction
     );
 
+    // 根据是否为群戏选择不同的系统提示词
+    let system_prompt = if is_group_beat {
+        GROUP_BEAT_REGENERATE_SYSTEM_PROMPT
+    } else {
+        REGENERATE_SYSTEM_PROMPT
+    };
+
     let response = call_deepseek(
         &user_prompt,
         api_key,
         base_url,
-        Some(REGENERATE_SYSTEM_PROMPT),
+        Some(system_prompt),
         true, // JSON 模式
         "deepseek-chat",
     )
@@ -334,6 +677,11 @@ pub async fn regenerate(
 }
 
 fn mock_regenerate_response(req: &RegenerateRequest) -> RegenerateResponse {
+    // 判断是否为群戏节拍
+    let is_group = req.participants.as_ref()
+        .map(|p| p.is_array())
+        .unwrap_or(false);
+
     if req.target == "scene" {
         RegenerateResponse {
             content: format!("已重新生成场景 {} 的全部内容（模拟模式）", req.scene_id),
@@ -359,6 +707,23 @@ fn mock_regenerate_response(req: &RegenerateRequest) -> RegenerateResponse {
                     "selected": 0
                 }
             ])),
+        }
+    } else if is_group {
+        // 群戏节拍 mock：返回含 participants 的重生成结果
+        RegenerateResponse {
+            content: format!(
+                "[AI重生成·群戏] 根据「{}」的要求重新生成了此群戏节拍（模拟模式）",
+                req.instruction
+            ),
+            alternatives: Some(vec![
+                BeatAlternative {
+                    content: "[备选·群戏A] 紧张对抗风格的群戏版本（模拟）".to_string(),
+                    tone: Some("激烈冲突".to_string()),
+                    name: None,
+                    emotion: None,
+                },
+            ]),
+            beats: None,
         }
     } else {
         RegenerateResponse {

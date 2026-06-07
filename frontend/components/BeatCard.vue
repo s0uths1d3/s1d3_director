@@ -53,24 +53,8 @@
         class="text-[10px] text-slate-400 bg-transparent border-b border-transparent hover:border-slate-600 focus:border-emerald-500 outline-none px-1 w-14 transition-colors"
       />
 
-      <!-- 右侧操作按钮组 -->
-      <div class="ml-auto flex items-center gap-0.5">
-        <!-- AI 重生（始终可见） -->
-        <button
-          @click="$emit('ai-regenerate')"
-          class="flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-medium border transition-all"
-          :class="isRegenerating
-            ? 'border-indigo-500/40 bg-indigo-500/10 text-indigo-400 animate-pulse'
-            : 'border-slate-700/40 bg-slate-800/50 text-slate-400 hover:border-indigo-500/50 hover:text-indigo-400 hover:bg-indigo-500/5'"
-          :title="isRegenerating ? '生成中...' : 'AI 重新生成'"
-        >
-          <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-          </svg>
-          {{ isRegenerating ? '生成中' : 'AI 重新生成' }}
-        </button>
-        <!-- 更多操作（hover显示） -->
-        <div class="flex items-center gap-0.5 opacity-30 group-hover:opacity-100 transition-opacity">
+      <!-- 更多操作（hover显示） -->
+      <div class="ml-auto flex items-center gap-0.5 opacity-30 group-hover:opacity-100 transition-opacity">
         <!-- 上移 -->
         <button
           @click="$emit('move-up')"
@@ -118,7 +102,6 @@
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
           </svg>
         </button>
-      </div>
       </div>
     </div>
 
@@ -242,11 +225,13 @@ interface Props {
   beat: Beat
   isActive?: boolean
   isRegenerating?: boolean
+  isGeneratingAlts?: boolean
 }
 
 const props = withDefaults(defineProps<Props>(), {
   isActive: false,
   isRegenerating: false,
+  isGeneratingAlts: false,
 })
 
 const emit = defineEmits<{
@@ -259,6 +244,7 @@ const emit = defineEmits<{
   'add-alt': [content: string, options?: { name?: string; emotion?: string }]
   delete: []
   'ai-regenerate': []
+  'ai-alternatives': []
   'move-up': []
   'move-down': []
   'toggle-history': []

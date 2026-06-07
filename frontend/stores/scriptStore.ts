@@ -11,6 +11,8 @@ export interface BeatAlternative {
   tone?: string
   /** 方案关联的情绪值，选中时同步到 beat.emotion */
   emotion?: string
+  /** 群戏备选方案的参与者列表（群戏节拍专用） */
+  participants?: BeatParticipant[]
 }
 
 // 群戏参与者（新增）
@@ -135,6 +137,8 @@ export const useScriptStore = defineStore('script', () => {
   const modifications = ref<ModificationRecord[]>([])
   // AI 重生成加载状态：key 为 "sceneId:beatIndex" 或 "sceneId"
   const regeneratingKeys = ref<Set<string>>(new Set())
+  // AI 备选方案生成状态：key 为 "sceneId:beatIndex"
+  const generatingAltsKeys = ref<Set<string>>(new Set())
 
   // 计算属性
   const scenes = computed(() => scriptData.value?.scenes || [])
@@ -195,6 +199,11 @@ export const useScriptStore = defineStore('script', () => {
   // 某个目标是否正在 AI 重生成中
   function isRegenerating(key: string): boolean {
     return regeneratingKeys.value.has(key)
+  }
+
+  // 某个目标是否正在生成备选方案中
+  function isGeneratingAlts(key: string): boolean {
+    return generatingAltsKeys.value.has(key)
   }
 
   // ==================== 场景编辑方法 ====================
@@ -353,6 +362,11 @@ export const useScriptStore = defineStore('script', () => {
           pushModification(`scene:${sceneId}:beat:${beatIndex}`, 'content', beat.content, origContent, 'alternative')
           beat.content = origContent
         }
+        // 群戏节拍：恢复原始 participants
+        const origParticipants = (beat as any)._originalParticipants
+        if (origParticipants !== undefined) {
+          beat.participants = origParticipants
+        }
         beat.selected = 0
         syncYamlFromData()
         return
@@ -363,6 +377,10 @@ export const useScriptStore = defineStore('script', () => {
         if ((beat as any)._originalContent === undefined) {
           ;(beat as any)._originalContent = beat.content
         }
+        // 首次切换时保存原始 participants
+        if ((beat as any)._originalParticipants === undefined && beat.participants) {
+          ;(beat as any)._originalParticipants = JSON.parse(JSON.stringify(beat.participants))
+        }
 
         const oldVal = beat.content
         const oldEmotion = beat.emotion || ''
@@ -372,6 +390,10 @@ export const useScriptStore = defineStore('script', () => {
         // 同步备选方案的情绪到节拍
         if (selectedAlt.emotion !== undefined) {
           beat.emotion = selectedAlt.emotion
+        }
+        // 群戏节拍：同步 participants 到节拍
+        if (selectedAlt.participants && selectedAlt.participants.length > 0) {
+          beat.participants = selectedAlt.participants
         }
         pushModification(`scene:${sceneId}:beat:${beatIndex}`, 'content', oldVal, beat.content, 'alternative')
         if (oldEmotion !== (beat.emotion || '')) {
@@ -387,7 +409,7 @@ export const useScriptStore = defineStore('script', () => {
     sceneId: number,
     beatIndex: number,
     content: string,
-    options?: { name?: string; emotion?: string; tone?: string },
+    options?: { name?: string; emotion?: string; tone?: string; participants?: BeatParticipant[] },
   ) {
     if (!scriptData.value) return
     const scene = scriptData.value.scenes.find(s => s.id === sceneId)
@@ -401,6 +423,7 @@ export const useScriptStore = defineStore('script', () => {
         name: options?.name || undefined,
         emotion: options?.emotion || undefined,
         tone: options?.tone || undefined,
+        participants: options?.participants || undefined,
       })
       pushModification(`scene:${sceneId}:beat:${beatIndex}`, 'content', '', content, 'manual')
       syncYamlFromData()
@@ -432,6 +455,7 @@ export const useScriptStore = defineStore('script', () => {
     beatIndex: number,
     generatedContent: string,
     alternatives?: BeatAlternative[],
+    participants?: BeatParticipant[],
   ) {
     if (!scriptData.value) return
     const scene = scriptData.value.scenes.find(s => s.id === sceneId)
@@ -448,6 +472,11 @@ export const useScriptStore = defineStore('script', () => {
       // 将 AI 生成内容设为主内容
       beat.content = generatedContent
       beat.selected = 0
+
+      // 群戏节拍：同步 participants
+      if (participants && participants.length > 0) {
+        beat.participants = participants
+      }
 
       // 追加额外的备选项
       if (alternatives && alternatives.length > 0) {
@@ -493,6 +522,15 @@ export const useScriptStore = defineStore('script', () => {
       regeneratingKeys.value.add(key)
     } else {
       regeneratingKeys.value.delete(key)
+    }
+  }
+
+  /** 设置/清除备选方案生成状态 */
+  function setGeneratingAlts(key: string, loading: boolean) {
+    if (loading) {
+      generatingAltsKeys.value.add(key)
+    } else {
+      generatingAltsKeys.value.delete(key)
     }
   }
 
@@ -666,6 +704,7 @@ export const useScriptStore = defineStore('script', () => {
     currentBeat,
     flatBeats,
     isRegenerating,
+    isGeneratingAlts,
     // 新增：章节与角色增强
     chapters,
     scenesByChapter,
@@ -693,6 +732,7 @@ export const useScriptStore = defineStore('script', () => {
     applyAIRegeneration,
     applyAISceneRegeneration,
     setRegenerating,
+    setGeneratingAlts,
     addBeat,
     removeBeat,
     insertBeat,

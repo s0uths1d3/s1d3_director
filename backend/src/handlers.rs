@@ -479,6 +479,32 @@ pub async fn regenerate_handler(
     }
 }
 
+/// AI 生成备选方案（为节拍生成多个版本供选择）
+pub async fn alternatives_handler(
+    State(state): State<AppState>,
+    headers: axum::http::HeaderMap,
+    Json(body): Json<co_pilot::AlternativesRequest>,
+) -> Response {
+    let api_key = get_api_key(&state, &headers);
+    let base_url = get_base_url(&state, &headers);
+
+    tracing::info!(
+        target = body.target,
+        scene_id = body.scene_id,
+        beat_index = ?body.beat_index,
+        num_alts = body.num_alternatives,
+        "AI 备选方案生成请求"
+    );
+
+    match co_pilot::alternatives(&body, &api_key, &base_url).await {
+        Ok(response) => {
+            tracing::info!(num_alts = response.alternatives.len(), "AI 备选方案生成成功");
+            Json(response).into_response()
+        }
+        Err(e) => error_response(StatusCode::INTERNAL_SERVER_ERROR, &e),
+    }
+}
+
 /// AI 自动生成项目名称和描述
 pub async fn generate_project_info_handler(
     State(state): State<AppState>,

@@ -215,9 +215,9 @@
                 <h4 class="text-xs font-medium text-slate-400 uppercase tracking-wider mb-2">角色 ({{ scriptStore.characters.length }})</h4>
                 <div class="space-y-2">
                   <div v-for="char in scriptStore.characters" :key="char.id" class="character-mini p-2 rounded-lg bg-slate-800/40">
-                    <div class="flex items-center gap-2">
-                      <strong class="text-sm text-white">{{ char.name }}</strong>
-                      <span v-if="char.arc_summary" class="arc text-[10px] px-1.5 py-0.5 rounded bg-purple-500/10 text-purple-300 truncate max-w-[120px]" :title="char.arc_summary">{{ char.arc_summary }}</span>
+                    <div class="flex items-center gap-2 min-w-0">
+                      <strong class="text-sm text-white shrink-0">{{ char.name }}</strong>
+                      <span v-if="char.arc_summary" class="arc text-[10px] px-1.5 py-0.5 rounded bg-purple-500/10 text-purple-300 truncate min-w-0" :title="char.arc_summary">{{ char.arc_summary }}</span>
                     </div>
                     <div v-if="char.motivation" class="text-[10px] text-slate-500 mt-0.5">动机: {{ char.motivation }}</div>
                     <div v-if="char.relationships?.length" class="relations flex flex-wrap gap-1 mt-1">
@@ -280,6 +280,8 @@
                 :is-active="scriptStore.currentSceneId === scene.id"
                 :active-beat-index="scriptStore.currentBeatIndex"
                 :is-regenerating="!!scriptStore.isRegenerating(String(scene.id))"
+                :regenerating-beat-idx="regeneratingBeatKey"
+                :generating-alts-beat-idx="generatingAltsBeatKey"
                 @update-field="(field, value) => updateSceneField(scene.id, field as any, value)"
                 @update-beat="(idx, content) => handleUpdateBeat(scene.id, idx, content)"
                 @update-beat-type="(idx, newType) => handleUpdateBeatType(scene.id, idx, newType)"
@@ -293,6 +295,7 @@
                 @delete-scene="handleDeleteScene(scene.id)"
                 @ai-regenerate-scene="() => handleAIRegenerateScene(scene.id)"
                 @ai-regenerate-beat="(idx) => handleAIRegenerateBeat(scene.id, idx)"
+                @ai-alternatives-beat="(idx) => handleAIAlternativesBeat(scene.id, idx)"
                 @move-beat="(idx, dir) => scriptStore.moveBeat(scene.id, idx, dir)"
                 @toggle-history="(idx) => showHistoryPanel(scene.id, idx)"
                 @update-beat-stage-direction="(idx, val) => handleUpdateBeatStageDirection(scene.id, idx, val)"
@@ -836,6 +839,8 @@
         </div>
       </div>
     </Teleport>
+    <!-- 全局弹窗（alert/confirm/prompt） -->
+    <AppDialog />
   </div>
 </template>
 
@@ -860,6 +865,7 @@ import Player from '~/components/Player.vue'
 import CopilotChat from '~/components/CopilotChat.vue'
 import BeatCard from '~/components/BeatCard.vue'
 import SceneCard from '~/components/SceneCard.vue'
+import AppDialog from '~/components/AppDialog.vue'
 
 const route = useRoute()
 const scriptStore = useScriptStore()
@@ -1743,6 +1749,8 @@ function handleUpdateBeatStageDirection(sceneId: number, beatIndex: number, valu
 }
 
 // ==================== AI 重生成 ====================
+const regeneratingBeatKey = ref('')
+const generatingAltsBeatKey = ref('')
 
 /** AI 重生成单个节拍 */
 async function handleAIRegenerateBeat(sceneId: number, beatIndex: number) {
@@ -1761,6 +1769,9 @@ async function handleAIRegenerateBeat(sceneId: number, beatIndex: number) {
   scriptStore.setRegenerating(regenKey, true)
 
   try {
+    // 判断是否为群戏节拍
+    const isGroupBeat = Array.isArray(beat.participants) && beat.participants.length > 0
+
     const res = await fetch('/api/co-pilot/regenerate', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -1771,6 +1782,7 @@ async function handleAIRegenerateBeat(sceneId: number, beatIndex: number) {
         instruction,
         current_content: beat.content,
         full_script_yaml: scriptStore.yamlText,
+        ...(isGroupBeat ? { participants: beat.participants } : {}),
       }),
     })
 
@@ -1781,7 +1793,8 @@ async function handleAIRegenerateBeat(sceneId: number, beatIndex: number) {
       sceneId,
       beatIndex,
       data.content,
-      data.alternatives?.map((a: any) => ({ content: a.content, tone: a.tone }))
+      data.alternatives?.map((a: any) => ({ content: a.content, tone: a.tone, emotion: a.emotion, participants: a.participants })),
+      data.participants,
     )
     emitScriptUpdate()
 
@@ -1790,6 +1803,71 @@ async function handleAIRegenerateBeat(sceneId: number, beatIndex: number) {
     await dialog.alert(`AI 重生成失败：${e.message}`, { variant: 'danger', title: '错误' })
   } finally {
     scriptStore.setRegenerating(regenKey, false)
+  }
+}
+
+/** AI 生成备选方案：为当前节拍生成多个不同风格的版本供选择 */
+async function handleAIAlternativesBeat(sceneId: number, beatIndex: number) {
+  const scene = scriptStore.scenes.find(s => s.id === sceneId)
+  if (!scene || !scene.beats[beatIndex]) return
+  const beat = scene.beats[beatIndex]
+
+  // 弹出输入框让用户指定生成方向
+  const instruction = await dialog.prompt(
+    `请描述你希望从哪些角度生成【${beat.type === 'action' ? '动作' : beat.type === 'dialogue' ? '对白' : beat.type === 'monologue' ? '独白' : '括号说明'}】的备选方案（可留空使用默认策略）：`,
+    { title: 'AI 备选方案', placeholder: '例如：更正式的语气 / 更轻松幽默 / 更有冲突感 / 不同叙事视角...' }
+  )
+  if (instruction === null) return // 用户取消（允许空字符串，使用默认策略）
+
+  const altsKey = `${sceneId}:${beatIndex}`
+  generatingAltsBeatKey.value = altsKey
+  scriptStore.setGeneratingAlts(altsKey, true)
+
+  try {
+    // 判断是否为群戏节拍
+    const isGroupBeat = Array.isArray(beat.participants) && beat.participants.length > 0
+
+    const res = await fetch('/api/co-pilot/alternatives', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        target: 'beat',
+        scene_id: sceneId,
+        beat_index: beatIndex,
+        instruction: instruction || (isGroupBeat
+          ? '请为这个群戏节拍生成 3 个不同互动风格的备选版本'
+          : '请为这个节拍生成 3 个不同风格或角度的备选版本'),
+        current_content: beat.content,
+        current_type: beat.type,
+        speaker: beat.speaker,
+        full_script_yaml: scriptStore.yamlText,
+        num_alternatives: 3,
+        ...(isGroupBeat ? { participants: beat.participants } : {}),
+      }),
+    })
+
+    if (!res.ok) throw new Error(`HTTP ${res.status}`)
+    const data = await res.json()
+
+    // 将生成的备选方案添加到节拍中
+    if (data.alternatives && Array.isArray(data.alternatives)) {
+      for (const alt of data.alternatives) {
+        scriptStore.addCustomAlternative(sceneId, beatIndex, alt.content || '', {
+          name: alt.name || alt.tone || undefined,
+          emotion: alt.emotion || undefined,
+          participants: alt.participants || undefined,
+        })
+      }
+      emitScriptUpdate()
+      await dialog.alert(`已生成 ${data.alternatives.length} 个备选方案，可在节拍底部切换查看。`, { variant: 'success', title: '备选方案生成完成' })
+    } else {
+      await dialog.alert('未返回有效备选方案数据。', { variant: 'warning', title: '提示' })
+    }
+  } catch (e: any) {
+    await dialog.alert(`AI 备选方案生成失败：${e.message}`, { variant: 'danger', title: '错误' })
+  } finally {
+    generatingAltsBeatKey.value = ''
+    scriptStore.setGeneratingAlts(altsKey, false)
   }
 }
 
