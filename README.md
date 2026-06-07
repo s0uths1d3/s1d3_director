@@ -11,6 +11,7 @@
 - **因果图谱 (Causal Graph)** - 基于 petgraph 的有向图分析，DFS 下游事件影响评估，事件与边均锚定原文证据
 - **角色关系网络 (Relation Network)** - 角色间关系度量（亲密度、冲突度、信任度），每个数值附带判定依据说明
 - **AI 编剧助手 (Co-Pilot)** - 实时对话式编剧建议，基于上下文的智能推荐
+- **AI 节拍重写 & 备选方案** - 单节拍级别 AI 重新生成，支持普通节拍与群戏节拍（多人参与者）的差异化提示词；多备选方案一键切换对比
 
 ### 编辑器特性
 - **三栏布局** - 左侧章节导航（单击定位 / 双击跳转首个场景）、中间场景编辑区、右侧大纲面板（因果图/关系图/情感曲线切换）
@@ -185,6 +186,8 @@ npm run dev
 | POST | `/api/relation/update` | 更新关系网络 |
 | POST | `/api/co-pilot/chat` | AI 对话 |
 | POST | `/api/co-pilot/suggest` | AI 建议 |
+| POST | `/api/co-pilot/regenerate` | AI 重新生成节拍（支持群戏） |
+| POST | `/api/co-pilot/alternatives` | AI 生成备选方案（支持群戏） |
 
 ## 已知限制
 
