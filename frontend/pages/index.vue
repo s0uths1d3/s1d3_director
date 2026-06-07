@@ -271,6 +271,67 @@
             <div class="bg-slate-800/60 backdrop-blur-sm rounded-xl border border-slate-700/50 p-6">
               <label class="block text-sm font-medium text-slate-300 mb-4">功能选项</label>
               <div class="space-y-3">
+                <!-- 章节处理模式（突出显示） -->
+                <div class="rounded-lg bg-slate-900/50 border border-slate-600/50 p-3">
+                  <label class="flex items-center justify-between cursor-pointer group">
+                    <div class="flex items-center gap-2.5 min-w-0">
+                      <svg class="w-4 h-4 text-indigo-400 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                      </svg>
+                      <span class="text-sm text-slate-300 group-hover:text-white transition-colors">AI 自动分析章节</span>
+                    </div>
+                    <button
+                      type="button"
+                      role="switch"
+                      :aria-checked="config.aiChapterAnalysis"
+                      @click="config.aiChapterAnalysis = !config.aiChapterAnalysis"
+                      class="relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-indigo-500/50 focus:ring-offset-2 focus:ring-offset-slate-800"
+                      :class="config.aiChapterAnalysis ? 'bg-indigo-500' : 'bg-slate-600'"
+                    >
+                      <span
+                        class="pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out"
+                        :class="config.aiChapterAnalysis ? 'translate-x-5' : 'translate-x-0'"
+                      />
+                    </button>
+                  </label>
+                  <!-- 模式说明 -->
+                  <p class="text-[11px] text-slate-500 mt-2 leading-relaxed pl-6.5">
+                    <template v-if="config.aiChapterAnalysis">
+                      <span class="text-indigo-400/80 font-medium">AI 分析模式</span>
+                      — 系统将基于叙事完整性智能划分章节，适合无明确章节标记的小说
+                    </template>
+                    <template v-else>
+                      <span class="text-emerald-400/80 font-medium">保留原始章节</span>
+                      — 系统将识别原文中的「第X章」等标记，按用户原有章节结构搭建项目
+                    </template>
+                  </p>
+                  <!-- 章节预览（检测到章节时显示） -->
+                  <div v-if="!config.aiChapterAnalysis && detectedChapters.length > 0" class="mt-2 pl-6.5">
+                    <div class="flex items-center gap-1.5 text-[10px] text-emerald-400/70 mb-1.5">
+                      <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
+                      </svg>
+                      检测到 {{ detectedChapters.length }} 个章节
+                    </div>
+                    <div class="max-h-28 overflow-y-auto space-y-0.5 pr-1">
+                      <div v-for="(ch, idx) in detectedChapters" :key="idx"
+                        class="flex items-center gap-2 px-2 py-1 rounded bg-slate-800/60 text-[10px]">
+                        <span class="text-slate-500 shrink-0 w-5 text-right">{{ idx + 1 }}</span>
+                        <span class="text-slate-300 truncate">{{ ch.title }}</span>
+                        <span class="text-slate-600 ml-auto shrink-0">{{ ch.charCount }}字</span>
+                      </div>
+                    </div>
+                  </div>
+                  <div v-else-if="!config.aiChapterAnalysis && novelText.length > 100 && detectedChapters.length === 0" class="mt-2 pl-6.5">
+                    <div class="flex items-center gap-1.5 text-[10px] text-amber-400/70">
+                      <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z" />
+                      </svg>
+                      未检测到标准章节标记（如「第X章」），建议启用 AI 分析模式
+                    </div>
+                  </div>
+                </div>
+
                 <label class="flex items-center justify-between cursor-pointer group">
                   <span class="text-sm text-slate-300 group-hover:text-white transition-colors">盲演模式</span>
                   <input type="checkbox" v-model="config.blindActingMode" class="w-4 h-4 rounded border-slate-600 text-indigo-500 focus:ring-indigo-500/50" />
@@ -399,9 +460,63 @@ const generateMessage = ref('')
 const config = reactive({
   style: 'short_drama',
   blindActingMode: true,
+  aiChapterAnalysis: true,
   includeCausalGraph: true,
   includeRelationNetwork: true,
   includeMediaHints: true,
+})
+
+// ==================== 章节检测（原始章节保留模式） ====================
+
+/** 章节标记正则：匹配「第X章」、Markdown标题、Chapter X 等常见格式 */
+const CHAPTER_PATTERN = /^(?:\s{0,4}#{1,6}\s+)?(?:第[一二三四五六七八九十百千零〇0-9]+[章节回卷集部]|[Cc]hapter\s+\d+|[Pp]art\s+\d+|\d+[\.、．]\s*\S.*)/m
+
+interface DetectedChapter {
+  title: string
+  startOffset: number
+  endOffset: number
+  charCount: number
+}
+
+/** 检测小说文本中的章节结构 */
+const detectedChapters = computed<DetectedChapter[]>(() => {
+  const text = novelText.value
+  if (!text || text.length < 50) return []
+
+  // 使用带全局标志的正则，通过 exec 迭代获取每个匹配的精确位置
+  const globalPattern = new RegExp(CHAPTER_PATTERN.source, CHAPTER_PATTERN.flags.replace('m', '') + 'gm')
+  const chapters: DetectedChapter[] = []
+  let match: RegExpExecArray | null
+  let lastEnd = 0
+
+  while ((match = globalPattern.exec(text)) !== null) {
+    const title = match[0].replace(/^[#\s]+/, '').trim()
+    const start = match.index
+
+    // 关闭上一个章节
+    if (chapters.length > 0) {
+      chapters[chapters.length - 1].endOffset = start
+      chapters[chapters.length - 1].charCount =
+        chapters[chapters.length - 1].endOffset - chapters[chapters.length - 1].startOffset
+    }
+
+    chapters.push({
+      title,
+      startOffset: start,
+      endOffset: text.length,
+      charCount: 0,
+    })
+    lastEnd = start
+  }
+
+  // 关闭最后一个章节
+  if (chapters.length > 0) {
+    chapters[chapters.length - 1].endOffset = text.length
+    chapters[chapters.length - 1].charCount =
+      chapters[chapters.length - 1].endOffset - chapters[chapters.length - 1].startOffset
+  }
+
+  return chapters
 })
 
 // ==================== 项目 API 操作 ====================
@@ -665,20 +780,32 @@ async function generateScript() {
     } else {
       // 降级为普通 POST 模式
       generateMessage.value = '正在生成剧本（可能需要 30~120 秒）...'
+      const requestBody: Record<string, any> = {
+        text: novelText.value,
+        config: {
+          style: config.style,
+          blind_acting_mode: config.blindActingMode,
+          max_alternatives: 2,
+          include_media_hints: config.includeMediaHints,
+          include_causal_graph: config.includeCausalGraph,
+          include_relation_network: config.includeRelationNetwork,
+          ai_chapter_analysis: config.aiChapterAnalysis,
+        },
+      }
+      // 保留原始章节模式时，传递前端检测到的章节数据
+      if (!config.aiChapterAnalysis && detectedChapters.value.length > 0) {
+        requestBody.pre_parsed_chapters = detectedChapters.value.map((ch, idx) => ({
+          id: `ch_${String(idx + 1).padStart(3, '0')}`,
+          title: ch.title,
+          order: idx + 1,
+          start_offset: ch.startOffset,
+          end_offset: ch.endOffset,
+        }))
+      }
       const response = await fetch('/api/generate-script', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          text: novelText.value,
-          config: {
-            style: config.style,
-            blind_acting_mode: config.blindActingMode,
-            max_alternatives: 2,
-            include_media_hints: config.includeMediaHints,
-            include_causal_graph: config.includeCausalGraph,
-            include_relation_network: config.includeRelationNetwork,
-          },
-        }),
+        body: JSON.stringify(requestBody),
       })
       if (!response.ok) throw new Error(`生成失败: ${response.status}`)
       yamlText = await response.text()
@@ -763,7 +890,8 @@ async function tryStreamGenerate(_text: string): Promise<boolean> {
 async function streamGenerateScript(text: string): Promise<string> {
   return new Promise((resolve, reject) => {
     const encodedText = encodeURIComponent(text)
-    const eventSource = new EventSource(`/api/generate-script/stream?text=${encodedText}`)
+    const chapterMode = config.aiChapterAnalysis ? 'true' : 'false'
+    const eventSource = new EventSource(`/api/generate-script/stream?text=${encodedText}&ai_chapter_analysis=${chapterMode}`)
 
     eventSource.onmessage = (event) => {
       try {

@@ -103,7 +103,12 @@ pub async fn call_deepseek(
 
     // 发送 HTTP 请求
     // DeepSeek OpenAI 兼容格式：base_url = https://api.deepseek.com，实际端点为 /v1/chat/completions
-    let client = reqwest::Client::new();
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(120))
+        .connect_timeout(std::time::Duration::from_secs(15))
+        .user_agent("Novel2Script-Pro/1.0")
+        .build()
+        .map_err(|e| format!("创建 HTTP 客户端失败: {}", e))?;
     let base_url_trimmed = base_url.trim_end_matches('/');
     let url = format!("{}/v1/chat/completions", base_url_trimmed);
 
@@ -118,12 +123,22 @@ pub async fn call_deepseek(
         .header("Authorization", format!("Bearer {}", api_key))
         .header("Content-Type", "application/json")
         .json(&request)
-        .timeout(std::time::Duration::from_secs(120))
         .send()
         .await
         .map_err(|e| {
             tracing::error!(error = %e, url = %url, "DeepSeek API HTTP 请求失败");
-            format!("请求 DeepSeek API 失败 ({})：请检查网络连接和 API 地址是否正确", e)
+            // 提供更具体的诊断信息
+            if e.is_timeout() {
+                format!("请求 DeepSeek API 超时（{}s）：请检查网络连接或 API 地址是否可达", 120)
+            } else if e.is_connect() {
+                format!("无法连接到 DeepSeek API ({})：请检查网络连接、防火墙或代理设置", url)
+            } else if e.to_string().contains("dns") || e.to_string().contains("DNS") {
+                format!("DNS 解析失败：无法解析域名 {}，请检查网络设置", base_url)
+            } else if e.to_string().contains("certificate") || e.to_string().contains("tls") || e.to_string().contains("ssl") {
+                format!("TLS/SSL 握手失败 ({}): 请检查系统证书或使用 native-tls 后端", url)
+            } else {
+                format!("请求 DeepSeek API 失败 ({})：请检查网络连接和 API 地址是否正确", e)
+            }
         })?;
 
     if !response.status().is_success() {

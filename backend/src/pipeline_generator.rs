@@ -13,12 +13,43 @@ pub async fn generate_via_pipeline(
     api_key: &str,
     base_url: &str,
 ) -> Result<(ScriptYaml, Vec<PipelineProgressEvent>), String> {
+    generate_via_pipeline_with_pre_parsed(text, config, api_key, base_url, None).await
+}
+
+/// 带预解析章节的流水线入口（供 handler 调用时传入 pre_parsed_chapters）
+pub async fn generate_via_pipeline_with_pre_parsed(
+    text: &str,
+    config: &GenConfig,
+    api_key: &str,
+    base_url: &str,
+    pre_parsed: Option<Vec<PreParsedChapter>>,
+) -> Result<(ScriptYaml, Vec<PipelineProgressEvent>), String> {
     let mut progress_events = Vec::new();
     let is_mock = api_key.is_empty() || api_key == "mock";
 
     if is_mock {
         info!("Pipeline 使用模拟模式");
-        let script = generate_mock_pipeline(text, config);
+        let script = if config.ai_chapter_analysis {
+            generate_mock_pipeline(text, config)
+        } else {
+            // Mock 模式 + 保留原始章节：使用正则解析或 pre_parsed
+            let chapters = match pre_parsed {
+                Some(ref parsed) if !parsed.is_empty() => {
+                    parsed.iter().map(|p| ChapterOutline {
+                        id: p.id.clone(),
+                        title: p.title.clone(),
+                        order: p.order,
+                        start_offset: p.start_offset,
+                        end_offset: p.end_offset,
+                        summary: format!("{} 摘要", p.title),
+                        plot_lines: vec!["plot_main".to_string()],
+                        key_characters: vec![],
+                    }).collect()
+                }
+                _ => parse_chapters_from_text(text),
+            };
+            generate_mock_pipeline_with_chapters(text, config, &chapters)
+        };
         progress_events.push(PipelineProgressEvent {
             stage: "analysis".to_string(),
             message: "模拟模式：跳过分析".to_string(),
@@ -34,7 +65,8 @@ pub async fn generate_via_pipeline(
     // ========== Stage 1: 全局分析 ==========
     progress_events.push(PipelineProgressEvent {
         stage: "analysis".to_string(),
-        message: "正在分析小说结构...".to_string(),
+        message: if config.ai_chapter_analysis { "正在分析小说结构...".to_string() }
+                  else { "正在识别章节结构并分析角色...".to_string() },
         progress: 0.0,
         current_chapter: None,
         total_chapters: None,
@@ -42,32 +74,85 @@ pub async fn generate_via_pipeline(
         total_chunks: None,
     });
 
-    let outline = match analyze_novel(text, api_key, base_url).await {
-        Ok(o) => {
-            info!(chapters = o.chapters.len(), characters = o.characters.len(), "Stage 1 分析完成");
-            progress_events.push(PipelineProgressEvent {
-                stage: "analysis".to_string(),
-                message: format!("分析完成：识别 {} 个章节，{} 个角色", o.chapters.len(), o.characters.len()),
-                progress: 1.0,
-                current_chapter: None,
-                total_chapters: Some(o.chapters.len() as i32),
-                completed_chunks: None,
-                total_chunks: None,
-            });
-            o
+    let outline = if config.ai_chapter_analysis {
+        // AI 分析模式：LLM 完全负责章节划分 + 角色提取 + 情节线
+        match analyze_novel(text, api_key, base_url).await {
+            Ok(o) => {
+                info!(chapters = o.chapters.len(), characters = o.characters.len(), "Stage 1 AI 分析完成");
+                progress_events.push(PipelineProgressEvent {
+                    stage: "analysis".to_string(),
+                    message: format!("AI 分析完成：识别 {} 个章节，{} 个角色", o.chapters.len(), o.characters.len()),
+                    progress: 1.0,
+                    current_chapter: None,
+                    total_chapters: Some(o.chapters.len() as i32),
+                    completed_chunks: None,
+                    total_chunks: None,
+                });
+                o
+            }
+            Err(e) => {
+                warn!(error = %e, "Stage 1 失败，使用 mock 大纲");
+                progress_events.push(PipelineProgressEvent {
+                    stage: "analysis".to_string(),
+                    message: format!("分析失败，使用备用方案: {}", e),
+                    progress: 1.0,
+                    current_chapter: None,
+                    total_chapters: None,
+                    completed_chunks: None,
+                    total_chunks: None,
+                });
+                generate_mock_outline(text)
+            }
         }
-        Err(e) => {
-            warn!(error = %e, "Stage 1 失败，使用 mock 大纲");
-            progress_events.push(PipelineProgressEvent {
-                stage: "analysis".to_string(),
-                message: format!("分析失败，使用备用方案: {}", e),
-                progress: 1.0,
-                current_chapter: None,
-                total_chapters: None,
-                completed_chunks: None,
-                total_chunks: None,
-            });
-            generate_mock_outline(text)
+    } else {
+        // 保留原始章节模式：使用前端预解析或后端正则解析的章节，LLM 仅提取角色和摘要
+        let raw_chapters = match pre_parsed {
+            Some(ref parsed) if !parsed.is_empty() => {
+                info!(count = parsed.len(), "使用前端预解析的章节数据");
+                parsed.iter().map(|p| ChapterOutline {
+                    id: p.id.clone(),
+                    title: p.title.clone(),
+                    order: p.order,
+                    start_offset: p.start_offset,
+                    end_offset: p.end_offset,
+                    summary: String::new(), // 后续由 LLM 填充
+                    plot_lines: vec![],
+                    key_characters: vec![],
+                }).collect()
+            }
+            _ => {
+                info!("前端未提供预解析数据，使用后端正则检测章节");
+                parse_chapters_from_text(text)
+            }
+        };
+
+        match analyze_novel_preserve_chapters(text, &raw_chapters, api_key, base_url).await {
+            Ok(o) => {
+                info!(chapters = o.chapters.len(), characters = o.characters.len(), "Stage 1 保留章节模式完成");
+                progress_events.push(PipelineProgressEvent {
+                    stage: "analysis".to_string(),
+                    message: format!("章节保留完成：共 {} 个章节（已保留原始划分），{} 个角色", o.chapters.len(), o.characters.len()),
+                    progress: 1.0,
+                    current_chapter: None,
+                    total_chapters: Some(o.chapters.len() as i32),
+                    completed_chunks: None,
+                    total_chunks: None,
+                });
+                o
+            }
+            Err(e) => {
+                warn!(error = %e, "保留章节模式 Stage 1 失败，使用原始章节 + mock 角色");
+                progress_events.push(PipelineProgressEvent {
+                    stage: "analysis".to_string(),
+                    message: format!("分析失败，使用备用方案（保留原始章节）: {}", e),
+                    progress: 1.0,
+                    current_chapter: None,
+                    total_chapters: Some(raw_chapters.len() as i32),
+                    completed_chunks: None,
+                    total_chunks: None,
+                });
+                generate_outline_with_preserved_chapters(text, &raw_chapters)
+            }
         }
     };
 
@@ -236,6 +321,220 @@ async fn analyze_novel(
     let json_str = extract_json_from_response(&response);
     serde_json::from_str::<AnalysisOutline>(&json_str)
         .map_err(|e| format!("解析分析大纲失败: {}", e))
+}
+
+// ==================== 保留原始章节模式 ====================
+
+/// 章节标题正则：匹配中文数字/阿拉伯数字的「第X章」、Markdown 标题及常见变体
+fn chapter_regex() -> regex::Regex {
+    regex::Regex::new(
+        r"(?m)^(?:\s{0,4}#{1,6}\s+)?(?:第[一二三四五六七八九十百千零〇0-9]+[章节回卷集部]|[Cc]hapter\s+\d+|[Pp]art\s+\d+|\d+[\.、．]\s*\S.*)"
+    ).expect("chapter_regex 编译失败")
+}
+
+/// 使用正则从原文中解析章节结构（后端兜底方案）
+pub fn parse_chapters_from_text(text: &str) -> Vec<ChapterOutline> {
+    let re = chapter_regex();
+    let mut chapters: Vec<ChapterOutline> = Vec::new();
+    let mut _last_end = 0usize;
+
+    for cap in re.find_iter(text) {
+        // 去除 Markdown # 前缀和多余空白
+        let title = cap.as_str().trim().replace('#', "").replace("  ", " ").trim().to_string();
+        let start = cap.start();
+
+        // 关闭上一个章节
+        if let Some(last) = chapters.last_mut() {
+            last.end_offset = start;
+        }
+
+        chapters.push(ChapterOutline {
+            id: format!("ch_{:03}", chapters.len() + 1),
+            title,
+            order: (chapters.len() + 1) as i32,
+            start_offset: start,
+            end_offset: text.len(), // 暂设为末尾
+            summary: String::new(),
+            plot_lines: vec![],
+            key_characters: vec![],
+        });
+        _last_end = start;
+    }
+
+    // 确保最后一个章节 end 正确
+    if let Some(last) = chapters.last_mut() {
+        last.end_offset = text.len();
+    }
+
+    // 过滤掉过短的章节（少于 50 字符可能是误匹配）
+    let total = chapters.len();
+    chapters.retain(|ch| ch.end_offset.saturating_sub(ch.start_offset) >= 50 || total <= 1);
+
+    info!(detected = chapters.len(), "正则检测到章节");
+    chapters
+}
+
+/// 保留原始章节模式下的 LLM 分析：仅提取角色、情节线、摘要，不重新划分章节
+async fn analyze_novel_preserve_chapters(
+    text: &str,
+    preserved_chapters: &[ChapterOutline],
+    api_key: &str,
+    base_url: &str,
+) -> Result<AnalysisOutline, String> {
+    // 构建章节摘要信息供 LLM 参考
+    let chapter_info: Vec<String> = preserved_chapters.iter().map(|ch| {
+        let ch_text = text.get(ch.start_offset..ch.end_offset.min(text.len()))
+            .unwrap_or("");
+        let preview = safe_truncate(ch_text, 200);
+        format!(
+            "- 第{}章「{}」(字符范围 {}~{}, 预览: \"{}...\")",
+            ch.order, ch.title, ch.start_offset, ch.end_offset,
+            preview.replace('\n', " ").replace('"', "'")
+        )
+    }).collect();
+
+    let prompt = format!(
+        r#"你是一名专业的文学分析师。用户已提供了小说的原始章节划分，请基于这些已有章节进行分析。
+
+## 已有章节划分（不可修改）
+
+{}
+
+## 输出要求
+
+严格输出以下 JSON 结构，不要包含任何其他文字：
+
+{{
+  "characters": [
+    {{
+      "id": "char_001",
+      "name": "角色名",
+      "traits": ["特征1", "特征2"],
+      "voice": "语言风格描述",
+      "arc_summary": "角色弧光/成长轨迹",
+      "motivation": "核心动机或目标"
+    }}
+  ],
+  "plot_lines": [
+    {{
+      "id": "plot_main",
+      "name": "主线名称",
+      "description": "情节线描述",
+      "line_type": "main"
+    }}
+  ],
+  "chapters": [
+    {}
+  ],
+  "full_summary": "全文摘要（200字以内）"
+}}
+
+## 分析规则
+
+1. 提取主要角色（3~15人），仅提取真正参与剧情推进的角色
+2. 识别情节线（至少1条主线 + 支线）
+3. **chapters 字段必须严格保留上述已有的章节划分**，仅补充每章的 summary（100字内摘要）和 key_characters（本章主要角色ID列表）
+4. **禁止合并、拆分、删除或重新排序已有章节**
+5. 每章的 start_offset 和 end_offset 必须与上述提供的一致
+
+## 小说文本
+
+{}"#,
+        chapter_info.join("\n"),
+        preserved_chapters.iter().enumerate().map(|(_i, ch)| {
+            format!(r#"{{"id":"{}","title":"{}","order":{},"start_offset":{},"end_offset":{},"summary":"待填充","plot_lines":["plot_main"],"key_characters":[]}}"#,
+                ch.id, ch.title, ch.order, ch.start_offset, ch.end_offset)
+        }).collect::<Vec<String>>().join(",\n    "),
+        truncate_for_analysis(text)
+    );
+
+    let model = select_model("analysis");
+    let response = call_deepseek(&prompt, api_key, base_url, Some("你是专业文学分析师。严格输出JSON格式，不得修改已有章节划分。"), true, model).await?;
+
+    let json_str = extract_json_from_response(&response);
+    let mut outline: AnalysisOutline = serde_json::from_str(&json_str)
+        .map_err(|e| format!("解析分析大纲失败: {}", e))?;
+
+    // 安全保障：确保 LLM 返回的章节数量与预解析一致
+    if outline.chapters.len() != preserved_chapters.len() {
+        warn!(
+            expected = preserved_chapters.len(),
+            actual = outline.chapters.len(),
+            "LLM 返回章节数量不匹配，强制使用预解析章节"
+        );
+        // 用预解析的结构覆盖，但保留 LLM 的 summary 和 key_characters
+        for (i, orig) in preserved_chapters.iter().enumerate() {
+            if i < outline.chapters.len() {
+                outline.chapters[i].id = orig.id.clone();
+                outline.chapters[i].title = orig.title.clone();
+                outline.chapters[i].order = orig.order;
+                outline.chapters[i].start_offset = orig.start_offset;
+                outline.chapters[i].end_offset = orig.end_offset;
+            } else {
+                outline.chapters.push(orig.clone());
+            }
+        }
+        // 截断到正确数量
+        outline.chapters.truncate(preserved_chapters.len());
+    }
+
+    Ok(outline)
+}
+
+/// 降级方案：使用预解析章节 + mock 角色数据构建大纲
+fn generate_outline_with_preserved_chapters(_text: &str, chapters: &[ChapterOutline]) -> AnalysisOutline {
+    let characters = vec![
+        Character {
+            id: "char_001".to_string(),
+            name: "主角".to_string(),
+            traits: vec!["坚韧".to_string()],
+            voice: Some("自然".to_string()),
+            arc_summary: Some("角色成长弧光".to_string()),
+            motivation: Some("追求目标".to_string()),
+            relationships: vec![],
+            first_scene_id: Some(1),
+        },
+    ];
+
+    let plot_lines = vec![
+        PlotLineDef {
+            id: "plot_main".to_string(),
+            name: "主线".to_string(),
+            description: "核心故事线".to_string(),
+            line_type: "main".to_string(),
+        },
+    ];
+
+    let filled_chapters: Vec<ChapterOutline> = chapters.iter().map(|ch| ChapterOutline {
+        id: ch.id.clone(),
+        title: ch.title.clone(),
+        order: ch.order,
+        start_offset: ch.start_offset,
+        end_offset: ch.end_offset,
+        summary: if ch.summary.is_empty() { format!("{} 摘要", ch.title) } else { ch.summary.clone() },
+        plot_lines: if ch.plot_lines.is_empty() { vec!["plot_main".to_string()] } else { ch.plot_lines.clone() },
+        key_characters: if ch.key_characters.is_empty() { vec!["char_001".to_string()] } else { ch.key_characters.clone() },
+    }).collect();
+
+    AnalysisOutline {
+        characters,
+        plot_lines,
+        chapters: filled_chapters,
+        full_summary: "基于原始章节结构的小说改编大纲".to_string(),
+    }
+}
+
+/// Mock 模式：使用指定章节生成完整剧本（保留原始章节）
+fn generate_mock_pipeline_with_chapters(
+    text: &str,
+    config: &GenConfig,
+    chapters: &[ChapterOutline],
+) -> ScriptYaml {
+    let outline = generate_outline_with_preserved_chapters(text, chapters);
+    let chunks: Vec<SceneChunk> = chapters.iter().map(|ch| {
+        generate_single_chunk_mock(ch, config)
+    }).collect();
+    integrate_script(&chunks, &outline, config)
 }
 
 /// 截断策略：首尾采样

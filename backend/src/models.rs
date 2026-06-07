@@ -70,6 +70,19 @@ pub struct SpecialTechnique {
 pub struct GenerateScriptRequest {
     pub text: String,
     pub config: GenConfig,
+    /// 前端预解析的章节数据（保留原始章节模式时使用）
+    #[serde(default)]
+    pub pre_parsed_chapters: Option<Vec<PreParsedChapter>>,
+}
+
+/// 前端预解析的章节结构（与 ChapterOutline 对齐）
+#[derive(Debug, Deserialize, Clone, Serialize)]
+pub struct PreParsedChapter {
+    pub id: String,
+    pub title: String,
+    pub order: i32,
+    pub start_offset: usize,
+    pub end_offset: usize,
 }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -85,9 +98,13 @@ pub struct GenConfig {
     pub include_causal_graph: bool,
     #[serde(default)]
     pub include_relation_network: bool,
+    /// 是否启用 AI 自动分析章节（true=AI 分析，false=保留原始章节）
+    #[serde(default = "default_ai_chapter_analysis")]
+    pub ai_chapter_analysis: bool,
 }
 
 fn default_max_alternatives() -> usize { 2 }
+fn default_ai_chapter_analysis() -> bool { true }
 
 // ==================== 因果图谱 ====================
 

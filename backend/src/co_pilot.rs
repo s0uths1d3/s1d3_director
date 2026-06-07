@@ -95,10 +95,11 @@ pub async fn chat(
     // 如果有剧本内容，截取一部分作为上下文
     if let Some(yaml) = script_yaml {
         let preview_len = yaml.len().min(3000);
+        let safe_len = yaml.floor_char_boundary(preview_len);
         context_info.push_str(&format!(
             "\n\n当前剧本预览（前{}字）：\n{}",
-            preview_len,
-            &yaml[..preview_len]
+            safe_len,
+            &yaml[..safe_len]
         ));
     }
 
@@ -407,10 +408,11 @@ pub async fn alternatives(
     // 截取上下文
     if let Some(yaml) = &req.full_script_yaml {
         let preview_len = yaml.len().min(3000);
+        let safe_len = yaml.floor_char_boundary(preview_len);
         user_msg.push_str(&format!(
             "\n\n剧本上下文（前{}字）：\n{}",
-            preview_len,
-            &yaml[..preview_len]
+            safe_len,
+            &yaml[..safe_len]
         ));
     }
 
@@ -606,10 +608,12 @@ pub async fn regenerate(
     // 截取完整剧本作为上下文（限制长度避免超 token）
     if let Some(yaml) = &req.full_script_yaml {
         let preview_len = yaml.len().min(4000);
+        // 确保截断位置在字符边界上（UTF-8 中文 3 字节，不能从字节中间切）
+        let safe_len = yaml.floor_char_boundary(preview_len);
         context_parts.push(format!(
             "\n完整剧本上下文（前{}字）：\n{}",
-            preview_len,
-            &yaml[..preview_len]
+            safe_len,
+            &yaml[..safe_len]
         ));
     }
 
@@ -844,7 +848,8 @@ fn mock_project_info_response(novel_text: &str) -> ProjectInfoResponse {
         .unwrap_or("未命名");
 
     let name = if name_hint.len() > 18 {
-        format!("{}…改编剧本", &name_hint[..16])
+        let safe_cut = name_hint.floor_char_boundary(16);
+        format!("{}…改编剧本", &name_hint[..safe_cut])
     } else {
         format!("{}改编剧本", name_hint)
     };

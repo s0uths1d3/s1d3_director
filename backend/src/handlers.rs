@@ -174,7 +174,9 @@ pub async fn generate_script_handler(
     tracing::info!(api_key_len = api_key.len(), text_len = body.text.len(), "generate_script_handler called");
 
     // 优先使用 Pipeline 生成
-    match pipeline_generator::generate_via_pipeline(&body.text, &body.config, &api_key, &base_url).await {
+    match pipeline_generator::generate_via_pipeline_with_pre_parsed(
+        &body.text, &body.config, &api_key, &base_url, body.pre_parsed_chapters,
+    ).await {
         Ok((script_yaml, progress_events)) => {
             // 记录进度事件到日志
             for event in &progress_events {
@@ -308,7 +310,9 @@ pub async fn generate_script_stream_handler(
     let config = body.config.clone();
 
     let stream = async_stream::stream! {
-        match pipeline_generator::generate_via_pipeline(&text, &config, &api_key, &base_url).await {
+        match pipeline_generator::generate_via_pipeline_with_pre_parsed(
+            &text, &config, &api_key, &base_url, body.pre_parsed_chapters,
+        ).await {
             Ok((script_yaml, progress_events)) => {
                 // 先发送所有进度事件
                 for event in progress_events {
