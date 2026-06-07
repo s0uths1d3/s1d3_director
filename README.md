@@ -2,6 +2,8 @@
 
 > 基于 DeepSeek 大模型的 AI 辅助小说转剧本工具，支持情感热力图、因果图谱、关系网络、TTS 朗读、AI 编剧等创新功能。
 
+**[🎬 演示视频](https://www.bilibili.com/video/BV1KKEh6LEmC)** — 完整功能演示与操作讲解
+
 ## 功能特性
 
 ### 核心功能
@@ -97,6 +99,8 @@ s1d3_director/
 │   ├── nuxt.config.ts
 │   └── package.json
 ├── 1.md                        # 项目规格文档
+├── SCHEMA.md                   # 剧本 YAML Schema 规范（字段定义 + 设计决策）
+├── example.yaml                # 剧本 YAML 完整示例（含群戏节拍 + 备选方案）
 ├── README.md                   # 本文件
 └── .gitignore
 ```
@@ -175,6 +179,8 @@ npm run dev
    - 使用 AI 编剧助手获取建议
    - 左侧导航：单击定位章节 / 双击跳转首个场景
 8. **导出 YAML** - 剧本数据自动同步为 YAML 格式
+   - [Schema 规范](SCHEMA.md) — 完整字段定义与设计决策说明
+   - [示例文件](example.yaml) — 含群戏节拍 + 备选方案的完整样本
 
 ## API 接口
 
