@@ -124,14 +124,15 @@
 
     <!-- ===== 内容编辑区 ===== -->
     <div
+      ref="editorRef"
       contenteditable="true"
       :data-placeholder="'输入' + typeLabel + '内容...'"
+      @focus="handleFocus"
       @blur="handleBlur"
-      @input="handleInput"
+      @input="onContentInput"
+      @paste="handlePaste"
       @keydown.enter="handleEnterKeydown"
-      class="text-sm text-slate-200 leading-relaxed outline-none min-h-[20px] empty:before:content-[attr(data-placeholder)] empty:before:text-slate-600 empty:before:text-xs focus:empty:before:text-slate-500 break-words"
-      :textContent="displayedContent"
-      ref="editorRef"
+      class="beat-editor text-sm text-slate-200 leading-relaxed outline-none min-h-[20px] max-h-[200px] overflow-y-auto break-words whitespace-pre-wrap"
     ></div>
 
     <!-- ===== 多方案时：显示备选项选择区 ===== -->
@@ -365,17 +366,77 @@ function confirmEmotion() {
 }
 
 // ---- 内容编辑 ----
-function handleBlur(e: FocusEvent) {
-  const target = e.target as HTMLElement
-  const newContent = target.textContent?.trim() || ''
-  if (newContent !== props.beat.content) {
-    localContent.value = newContent
-    emit('update-content', newContent)
+
+/** 是否正在编辑（用于防止外部更新干扰） */
+const isEditing = ref(false)
+
+/**
+ * 将原始内容（含 char_XXX）同步到 DOM（显示解析后的名称）
+ * 仅在非编辑状态下调用，避免光标跳动
+ */
+function syncDOMContent() {
+  if (!editorRef.value) return
+  const resolved = resolvePlaceholders(localContent.value)
+  // 仅在内容确实变化时更新，减少不必要的重绘
+  if (editorRef.value.textContent !== resolved) {
+    editorRef.value.textContent = resolved
   }
+  updatePlaceholderVisibility()
 }
-function handleInput(e: Event) {
-  localContent.value = (e.target as HTMLElement).textContent || ''
+
+/** 根据实际内容更新占位符可见性 */
+function updatePlaceholderVisibility() {
+  const el = editorRef.value
+  if (!el) return
+  const hasRealContent = (el.textContent || '').trim().length > 0
+  el.classList.toggle('is-empty', !hasRealContent)
 }
+
+/** 聚焦时标记编辑状态 */
+function handleFocus() {
+  isEditing.value = true
+}
+
+/** 失焦时保存内容 */
+function handleBlur(e: FocusEvent) {
+  isEditing.value = false
+  const target = e.target as HTMLElement
+  const displayText = target.textContent?.trim() || ''
+  // 将显示文本中的角色名反向还原为 char_XXX ID
+  const rawContent = reverseResolvePlaceholders(displayText)
+  if (rawContent !== localContent.value) {
+    localContent.value = rawContent
+    emit('update-content', rawContent)
+  }
+  updatePlaceholderVisibility()
+}
+
+/** 输入事件：自动滚动保持光标可见 */
+function onContentInput(e: Event) {
+  updatePlaceholderVisibility()
+  const target = e.target as HTMLElement
+  requestAnimationFrame(() => {
+    const selection = window.getSelection()
+    if (selection && selection.rangeCount > 0) {
+      const range = selection.getRangeAt(0)
+      const rect = range.getBoundingClientRect()
+      const elRect = target.getBoundingClientRect()
+      if (rect.bottom > elRect.bottom) {
+        target.scrollTop += rect.bottom - elRect.bottom + 4
+      } else if (rect.top < elRect.top) {
+        target.scrollTop += rect.top - elRect.top - 4
+      }
+    }
+  })
+}
+
+/** 粘贴事件：过滤富文本，只保留纯文本 */
+function handlePaste(e: ClipboardEvent) {
+  e.preventDefault()
+  const text = e.clipboardData?.getData('text/plain') || ''
+  document.execCommand('insertText', false, text)
+}
+
 function handleEnterKeydown(_e: KeyboardEvent) {
   // 允许换行，不做拦截
 }
@@ -408,14 +469,40 @@ function resolvePlaceholders(text: string): string {
   })
 }
 
-/** 显示内容（占位符已替换为实际角色名） */
+/** 反向解析：将实际角色名还原为 char_XXX 占位符（用于保存时恢复ID引用） */
+function reverseResolvePlaceholders(text: string): string {
+  if (!text) return text
+  const chars = scriptStore.characters || []
+  const nameMap: Record<string, string> = {}
+  for (const ch of chars) {
+    if (ch.name && ch.id) {
+      nameMap[ch.name] = ch.id
+    }
+  }
+  // 按名称长度降序排列，避免短名称误匹配长名称的子串（如"小明"先于"明"）
+  const sortedNames = Object.keys(nameMap).sort((a, b) => b.length - a.length)
+  let result = text
+  for (const name of sortedNames) {
+    // 使用词边界匹配，避免部分替换
+    try {
+      result = result.replace(new RegExp(`\\b${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'g'), nameMap[name])
+    } catch {
+      // 正则构造失败时跳过该名称
+    }
+  }
+  return result
+}
+
+/** 显示内容（占位符已替换为实际角色名）— 供外部引用 */
 const displayedContent = computed(() => resolvePlaceholders(localContent.value))
 
+// ---- 外部变化同步（仅在非编辑状态下更新DOM，避免光标跳动） ----
 watch(() => props.beat.content, (newVal) => {
   if (newVal !== localContent.value) {
     localContent.value = newVal
-    if (editorRef.value && document.activeElement !== editorRef.value) {
-      editorRef.value.textContent = newVal
+    // 仅在用户未聚焦时同步到 DOM，保护光标位置
+    if (!isEditing.value) {
+      syncDOMContent()
     }
   }
 })
@@ -429,6 +516,11 @@ watch(() => props.beat.emotion, (newVal) => {
     localEmotion.value = newVal || ''
   }
 })
+
+// 组件挂载时初始化 DOM 内容和占位符状态
+onMounted(() => {
+  syncDOMContent()
+})
 </script>
 
 <style scoped>
@@ -436,8 +528,15 @@ watch(() => props.beat.emotion, (newVal) => {
   outline: none;
 }
 
-[contenteditable]:empty::before {
+/* 占位符：基于 .is-empty 类控制，支持空白内容检测 */
+.beat-editor.is-empty::before {
   content: attr(data-placeholder);
+  color: #475569;
+  font-size: 0.75rem;
   pointer-events: none;
+  cursor: text;
+}
+.beat-editor.is-empty:focus::before {
+  color: #64748b;
 }
 </style>

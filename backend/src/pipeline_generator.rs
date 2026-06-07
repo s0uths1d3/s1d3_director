@@ -277,39 +277,82 @@ fn truncate_for_analysis(text: &str) -> String {
     result
 }
 
-/// 从 LLM 响应中提取 JSON
+/// 从 LLM 响应中提取 JSON（通用版，保留原始结构）
+/// 用于 Stage 1 等期望 JSON 对象的场景
 fn extract_json_from_response(response: &str) -> String {
     let trimmed = response.trim();
+
+    // 处理 markdown 代码块包裹
     if trimmed.starts_with("```") {
         if let Some(start) = trimmed.find('\n') {
             if let Some(end) = trimmed[start + 1..].find("```") {
-                return extract_json_inner(trimmed[start + 1..start + 1 + end].trim());
+                return extract_json_object(trimmed[start + 1..start + 1 + end].trim());
             }
         }
     }
-    extract_json_inner(trimmed)
+
+    extract_json_object(trimmed)
 }
 
-/// 内部提取：优先数组，对象包裹则提取其中数组字段
-fn extract_json_inner(text: &str) -> String {
+/// 提取 JSON 对象（用于 Stage 1：AnalysisOutline 等对象类型响应）
+fn extract_json_object(text: &str) -> String {
     let t = text.trim();
 
-    // A: 直接是 JSON 数组
+    // 直接是对象 → 返回完整对象
+    if t.starts_with('{') {
+        if let Some(e) = t.rfind('}') { return t[..=e].to_string(); }
+        return t.to_string();
+    }
+
+    // 尝试在文本中找 { ... } 对象片段
+    if let Some(s) = t.find('{') {
+        if let Some(e) = t.rfind('}') {
+            if e > s { return t[s..=e].to_string(); }
+        }
+    }
+
+    t.to_string()
+}
+
+/// 从 LLM 响应中提取 JSON 数组（专用版，处理对象包裹数组的情况）
+/// 用于 Stage 2 等期望 JSON 数组的场景：LLM 可能返回 {"scenes": [...]} 而非直接 [...]
+fn extract_json_array_from_response(response: &str) -> String {
+    let trimmed = response.trim();
+
+    // 处理 markdown 代码块包裹
+    if trimmed.starts_with("```") {
+        if let Some(start) = trimmed.find('\n') {
+            if let Some(end) = trimmed[start + 1..].find("```") {
+                return extract_json_array_inner(trimmed[start + 1..start + 1 + end].trim());
+            }
+        }
+    }
+
+    extract_json_array_inner(trimmed)
+}
+
+/// 内部逻辑：从文本中提取 JSON 数组，智能处理对象包裹情况
+fn extract_json_array_inner(text: &str) -> String {
+    let t = text.trim();
+
+    // A: 直接以 [ 开头 → 就是数组，直接返回
     if t.starts_with('[') {
         if let Some(e) = t.rfind(']') { return t[..=e].to_string(); }
         return t.to_string();
     }
 
-    // B: 是 JSON 对象 → 尝试提取内部数组
+    // B: 以 { 开头 → 可能是对象包裹了数组，尝试提取
     if t.starts_with('{') {
         if let Ok(v) = serde_json::from_str::<serde_json::Value>(t) {
             if v.is_array() { return t.to_string(); }
             if let Some(o) = v.as_object() {
+                // 按优先级查找常见包裹字段名
                 for k in &["scenes", "data", "result", "output", "items"] {
                     if let Some(a) = o.get(*k).and_then(|x| x.as_array()) {
                         if let Ok(s) = serde_json::to_string(a) { return s; }
                     }
                 }
+                // 兜底：取第一个值是数组的字段
                 for (_, val) in o {
                     if val.is_array() {
                         if let Ok(s) = serde_json::to_string(val) { return s; }
@@ -317,19 +360,16 @@ fn extract_json_inner(text: &str) -> String {
                 }
             }
         }
+        // 无法提取数组 → 返回原始对象文本（让上层报错）
         if let Some(e) = t.rfind('}') { return t[..=e].to_string(); }
         return t.to_string();
     }
 
-    // C: 其他格式，找 [ ... ] 片段
+    // C: 其他格式，找 [ ... ] 数组片段
     if let Some(s) = t.find('[') {
         if let Some(e) = t.rfind(']') {
             if e > s { return t[s..=e].to_string(); }
         }
-    }
-
-    if let Some(s) = t.find('{') {
-        if let Some(e) = t.rfind('}') { return t[s..=e].to_string(); }
     }
 
     t.to_string()
@@ -649,7 +689,7 @@ async fn generate_single_chunk(
     let model = select_model("generation");
     let response = call_deepseek(&prompt, api_key, base_url, Some("你是专业编剧。你的输出必须且只能是一个JSON数组（以[开头、]结尾），不要用任何对象包裹，不要添加任何解释文字。"), true, model).await?;
 
-    let json_str = extract_json_from_response(&response);
+    let json_str = extract_json_array_from_response(&response);
     let scenes: Vec<Scene> = serde_json::from_str(&json_str)
         .map_err(|e| format!("解析场景数据失败: {}", e))?;
 

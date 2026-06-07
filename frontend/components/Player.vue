@@ -133,8 +133,127 @@ const scriptStore = useScriptStore()
 const contentRef = ref<HTMLElement>()
 const ttsEnabled = ref(false)
 
-// 播放定时器
-let playTimer: ReturnType<typeof setInterval> | null = null
+// ---- TTS 状态管理 ----
+let currentUtterance: SpeechSynthesisUtterance | null = null
+let ttsResolve: (() => void) | null = null // TTS 结束时的 resolve 回调
+const ttsSpeaking = ref(false)              // TTS 正在朗读（非暂停）
+
+/** 朗读一段文本，返回 Promise（TTS 结束或被取消/暂停时 resolve） */
+function speakContent(text: string): Promise<void> {
+  return new Promise((resolve) => {
+    if (!('speechSynthesis' in window)) { resolve(); return }
+
+    window.speechSynthesis.cancel()
+
+    const utterance = new SpeechSynthesisUtterance(text)
+    utterance.lang = 'zh-CN'
+    utterance.rate = 1.0
+    utterance.pitch = 1.0
+
+    utterance.onend = () => {
+      ttsSpeaking.value = false
+      currentUtterance = null
+      ttsResolve = null
+      resolve()
+    }
+    utterance.onerror = () => {
+      ttsSpeaking.value = false
+      currentUtterance = null
+      ttsResolve = null
+      resolve()
+    }
+    utterance.onstart = () => {
+      ttsSpeaking.value = true
+    }
+
+    currentUtterance = utterance
+    ttsResolve = resolve
+    window.speechSynthesis.speak(utterance)
+  })
+}
+
+/** 暂停 TTS */
+function pauseTTS() {
+  if (!ttsSpeaking.value || !window.speechSynthesis.speaking) return
+  window.speechSynthesis.pause()
+}
+
+/** 恢复 TTS */
+function resumeTTS() {
+  if (window.speechSynthesis.paused) {
+    window.speechSynthesis.resume()
+  }
+}
+
+/** 停止 TTS（取消当前朗读） */
+function stopTTS() {
+  window.speechSynthesis.cancel()
+  ttsSpeaking.value = false
+  currentUtterance = null
+  if (ttsResolve) {
+    ttsResolve()
+    ttsResolve = null
+  }
+}
+
+// ---- 自动播放控制 ----
+let autoPlayActive = false // 自动播放是否激活（播放中 or 暂停中）
+let isPaused = false       // 是否处于暂停状态
+
+/**
+ * 核心播放循环：等待当前节拍 TTS 读完 → 切换到下一节拍 → 朗读下一节拍
+ * 当 TTS 关闭时，使用固定间隔作为 fallback
+ */
+async function playLoop() {
+  while (autoPlayActive && !isPaused) {
+    // 检查是否已到达末尾
+    if (scriptStore.playPosition >= scriptStore.totalBeats - 1) {
+      scriptStore.stopPlay()
+      stopAutoPlay()
+      return
+    }
+
+    // 如果开启了 TTS，等 TTS 读完再切换
+    if (ttsEnabled.value && currentBeat.value?.content && 'speechSynthesis' in window) {
+      await speakContent(currentBeat.value.content)
+      // 播放过程中可能已被停止或暂停
+      if (!autoPlayActive || isPaused) return
+    } else {
+      // 无 TTS：固定间隔后切换（给阅读留时间）
+      await new Promise(r => setTimeout(r, 3000))
+      if (!autoPlayActive || isPaused) return
+    }
+
+    // 移动到下一个 beat
+    scriptStore.nextBeat()
+
+    // 自动滚动
+    scrollToCurrent()
+  }
+}
+
+function startAutoPlay() {
+  autoPlayActive = true
+  isPaused = false
+  playLoop() // 启动异步播放循环
+}
+
+function stopAutoPlay() {
+  autoPlayActive = false
+  isPaused = false
+  stopTTS()
+}
+
+function pauseAutoPlay() {
+  isPaused = true
+  pauseTTS()
+}
+
+function resumeAutoPlay() {
+  isPaused = false
+  resumeTTS()
+  playLoop() // 恢复播放循环
+}
 
 // 当前播放中的 beat 信息
 const currentBeat = computed(() => {
@@ -177,38 +296,14 @@ function togglePlay() {
   scriptStore.togglePlay()
 
   if (scriptStore.isPlaying) {
-    startAutoPlay()
+    // 从暂停恢复
+    if (isPaused) {
+      resumeAutoPlay()
+    } else {
+      startAutoPlay()
+    }
   } else {
-    stopAutoPlay()
-  }
-}
-
-function startAutoPlay() {
-  stopAutoPlay()
-  playTimer = setInterval(() => {
-    if (scriptStore.playPosition >= scriptStore.totalBeats - 1) {
-      scriptStore.stopPlay()
-      stopAutoPlay()
-      return
-    }
-
-    // 移动到下一个 beat
-    scriptStore.nextBeat()
-
-    // TTS 朗读
-    if (ttsEnabled.value && currentBeat.value?.content) {
-      speakContent(currentBeat.value.content)
-    }
-
-    // 自动滚动到当前内容
-    scrollToCurrent()
-  }, 2500) // 每 2.5 秒切换一个节拍
-}
-
-function stopAutoPlay() {
-  if (playTimer) {
-    clearInterval(playTimer)
-    playTimer = null
+    pauseAutoPlay()
   }
 }
 
@@ -256,23 +351,6 @@ function scrollToCurrent() {
   })
 }
 
-// TTS 朗读（使用 Web Speech API）
-let speechSynthesisUtterance: SpeechSynthesisUtterance | null = null
-
-function speakContent(text: string) {
-  if (!('speechSynthesis' in window)) return
-
-  // 取消之前的朗读
-  window.speechSynthesis.cancel()
-
-  speechSynthesisUtterance = new SpeechSynthesisUtterance(text)
-  speechSynthesisUtterance.lang = 'zh-CN'
-  speechSynthesisUtterance.rate = 1.0
-  speechSynthesisUtterance.pitch = 1.0
-
-  window.speechSynthesis.speak(speechSynthesisUtterance)
-}
-
 // 监听播放状态变化，自动滚动
 watch(
   () => scriptStore.playPosition,
@@ -286,6 +364,5 @@ import { onUnmounted } from 'vue'
 
 onUnmounted(() => {
   stopAutoPlay()
-  window.speechSynthesis?.cancel()
 })
 </script>

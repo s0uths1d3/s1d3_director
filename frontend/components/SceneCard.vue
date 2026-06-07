@@ -143,7 +143,8 @@
                 contenteditable="true"
                 :data-placeholder="'输入节拍内容...'"
                 @blur="(e) => emit('update-beat', idx, (e.target as HTMLElement).textContent?.trim() || '')"
-                class="text-sm text-slate-200 leading-relaxed outline-none min-h-[20px] empty:before:content-[attr(data-placeholder)] empty:before:text-slate-600 empty:before:text-xs focus:empty:before:text-slate-500 break-words mb-2 rounded px-1 -mx-1 cursor-text hover:bg-slate-700/30 focus:bg-slate-700/50 focus:ring-1 focus:ring-indigo-500/30 transition-all duration-150"
+                @paste="handlePaste"
+                class="group-beat-editor text-sm text-slate-200 leading-relaxed outline-none min-h-[20px] max-h-[200px] overflow-y-auto break-words mb-2 rounded px-1 -mx-1 cursor-text hover:bg-slate-700/30 focus:bg-slate-700/50 focus:ring-1 focus:ring-indigo-500/30 transition-all duration-150 whitespace-pre-wrap"
               >{{ resolveContentPlaceholders(beat.content) }}</div>
 
               <!-- 舞台指示 — 可编辑 -->
@@ -152,7 +153,8 @@
                 contenteditable="true"
                 data-placeholder="输入舞台指示..."
                 @blur="(e) => { const val = (e.target as HTMLElement).textContent?.trim() || ''; emit('update-beat-stage-direction', idx, val) }"
-                class="stage-direction text-xs text-amber-400/80 italic mb-2 pl-3 border-l-2 border-amber-500/30 outline-none min-h-[20px] empty:before:content-[attr(data-placeholder)] empty:before:text-amber-700 empty:before:text-xs focus:empty:before:text-amber-500/50 rounded pr-1 cursor-text hover:bg-slate-700/20 focus:bg-slate-700/40 focus:ring-1 focus:ring-amber-500/30 transition-all duration-150"
+                @paste="handlePaste"
+                class="stage-direction text-xs text-amber-400/80 italic mb-2 pl-3 border-l-2 border-amber-500/30 outline-none min-h-[20px] max-h-[120px] overflow-y-auto rounded pr-1 cursor-text hover:bg-slate-700/20 focus:bg-slate-700/40 focus:ring-1 focus:ring-amber-500/30 transition-all duration-150 whitespace-pre-wrap"
               >🎬 {{ beat.stage_direction }}</div>
               <!-- 参与者列表 -->
               <div class="space-y-1.5">
@@ -163,19 +165,21 @@
                   <span
                     contenteditable="true"
                     @blur="(e) => { emit('update-participant-name', idx, p.character_id, (e.target as HTMLElement).textContent?.trim() || '') }"
+                    @paste="handlePaste"
                     class="participant-name font-medium min-w-0 truncate outline-none rounded px-0.5 -mx-0.5 cursor-text hover:bg-slate-700/40 focus:bg-slate-700/60 focus:ring-1 focus:ring-indigo-500/30 transition-all duration-150"
                     :class="{
                       'text-blue-300': p.role === 'speaker',
                       'text-slate-400': p.role === 'listener',
                       'text-slate-500': p.role === 'observer',
                     }">{{ getCharacterName(p.character_id) }}</span>
-                  <!-- 台词 — 可编辑 -->
-                  <span
+                  <!-- 台词 — 可编辑（改用 div 支持滚动） -->
+                  <div
                     v-if="p.dialogue"
                     contenteditable="true"
                     @blur="(e) => { emit('update-participant-dialogue', idx, p.character_id, (e.target as HTMLElement).textContent?.trim() || '') }"
-                    class="participant-dialogue text-slate-200 outline-none rounded px-0.5 -mx-0.5 min-w-0 cursor-text hover:bg-slate-700/30 focus:bg-slate-700/50 focus:ring-1 focus:ring-indigo-500/30 transition-all duration-150"
-                  >: {{ resolveContentPlaceholders(p.dialogue) }}</span>
+                    @paste="handlePaste"
+                    class="participant-dialogue text-slate-200 outline-none rounded px-0.5 -mx-0.5 min-w-0 max-h-[150px] overflow-y-auto cursor-text hover:bg-slate-700/30 focus:bg-slate-700/50 focus:ring-1 focus:ring-indigo-500/30 transition-all duration-150 whitespace-pre-wrap inline-block align-top"
+                  >: {{ resolveContentPlaceholders(p.dialogue) }}</div>
                   <span v-else class="participant-role-hint text-slate-600 text-xs italic">({{ p.role === 'speaker' ? '说话' : p.role === 'listener' ? '倾听' : '观察' }})</span>
                 </div>
               </div>
@@ -302,6 +306,13 @@ function resolveContentPlaceholders(text: string): string {
     const charId = `char_${num.padStart(3, '0')}`
     return scriptStore.getCharacterName(charId)
   })
+}
+
+/** 粘贴事件：过滤富文本，只保留纯文本（群戏区域所有编辑区共用） */
+function handlePaste(e: ClipboardEvent) {
+  e.preventDefault()
+  const text = e.clipboardData?.getData('text/plain') || ''
+  document.execCommand('insertText', false, text)
 }
 
 // ---- Vue Transition 动画钩子：实现平滑高度过渡 ----

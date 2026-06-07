@@ -258,8 +258,8 @@
         <span class="absolute inset-y-0 left-1/2 -translate-x-1/2 w-[3px] h-8 my-auto rounded-full bg-slate-600 group-hover:bg-indigo-400 transition-colors opacity-0 group-hover:opacity-100"></span>
       </div>
 
-      <!-- 中间区域：按章节分组的场景卡片列表（自适应宽度） -->
-      <main ref="scrollContainerRef" class="flex-1 overflow-auto p-4 space-y-6 self-start">
+      <!-- 中间区域：按章节分组的场景卡片列表（自适应宽度，内部可滚动） -->
+      <main ref="scrollContainerRef" class="flex-1 min-h-0 overflow-auto p-4 space-y-6">
         <template v-for="(group, gi) in chapterSceneGroups" :key="group.chapterId">
           <ChapterCard
             :chapter-id="group.chapterId"
