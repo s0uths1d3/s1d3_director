@@ -65,16 +65,6 @@
               <option value="archived">已归档</option>
             </select>
 
-            <!-- 新建项目按钮 -->
-            <button
-              @click="showCreateDialog = true"
-              class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium bg-indigo-600 hover:bg-indigo-500 text-white transition-colors"
-            >
-              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
-              </svg>
-              新建项目
-            </button>
           </div>
         </div>
 
@@ -109,7 +99,7 @@
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
           </svg>
           <p class="text-slate-400 mb-1">暂无项目</p>
-          <p class="text-slate-500 text-sm">点击「新建项目」或直接在下方生成剧本，系统将自动为您创建项目</p>
+          <p class="text-slate-500 text-sm">在下方生成剧本后，系统将自动为您创建项目</p>
         </div>
 
         <!-- 项目卡片网格 -->
@@ -209,10 +199,10 @@
           </p>
         </div>
 
-        <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 items-stretch">
           <!-- 左侧：小说输入 -->
-          <div class="lg:col-span-2 space-y-6">
-            <div class="bg-slate-800/60 backdrop-blur-sm rounded-xl border border-slate-700/50 p-6">
+          <div class="lg:col-span-2 flex flex-col">
+            <div class="bg-slate-800/60 backdrop-blur-sm rounded-xl border border-slate-700/50 p-6 flex-1 flex flex-col">
               <label class="block text-sm font-medium text-slate-300 mb-3">小说文本输入</label>
 
               <!-- 文件上传 -->
@@ -237,7 +227,7 @@
               <textarea
                 v-model="novelText"
                 placeholder="或者直接在此粘贴小说内容..."
-                class="w-full h-64 bg-slate-900/50 border border-slate-600 rounded-lg p-4 text-slate-200 placeholder-slate-500 resize-y focus:outline-none focus:ring-2 focus:ring-indigo-500/50 focus:border-transparent"
+                class="w-full flex-1 min-h-64 bg-slate-900/50 border border-slate-600 rounded-lg p-4 text-slate-200 placeholder-slate-500 resize-none focus:outline-none focus:ring-2 focus:ring-indigo-500/50 focus:border-transparent"
               ></textarea>
 
               <div class="flex justify-between items-center mt-2">
@@ -248,7 +238,24 @@
           </div>
 
           <!-- 右侧：配置面板 -->
-          <div class="space-y-6">
+          <div class="flex flex-col gap-6">
+            <!-- 项目信息（可选） -->
+            <div class="bg-slate-800/60 backdrop-blur-sm rounded-xl border border-slate-700/50 p-6">
+              <label class="block text-sm font-medium text-slate-300 mb-3">项目信息</label>
+              <div class="space-y-3">
+                <div>
+                  <label class="block text-xs text-slate-400 mb-1">项目名称 <span class="text-slate-600">(可选，留空则 AI 自动生成)</span></label>
+                  <input v-model="projectName" type="text" placeholder="例如：校园爱情改编剧本"
+                    class="w-full bg-slate-900/50 border border-slate-600 rounded-lg px-3 py-2 text-sm text-slate-200 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/50" />
+                </div>
+                <div>
+                  <label class="block text-xs text-slate-400 mb-1">项目描述 <span class="text-slate-600">(可选，留空则 AI 自动生成)</span></label>
+                  <textarea v-model="projectDescription" rows="2" placeholder="简要描述这个项目的目标..."
+                    class="w-full bg-slate-900/50 border border-slate-600 rounded-lg px-3 py-2 text-sm text-slate-200 placeholder-slate-500 resize-none focus:outline-none focus:ring-2 focus:ring-indigo-500/50"></textarea>
+                </div>
+              </div>
+            </div>
+
             <!-- 剧本风格 -->
             <div class="bg-slate-800/60 backdrop-blur-sm rounded-xl border border-slate-700/50 p-6">
               <label class="block text-sm font-medium text-slate-300 mb-3">剧本风格</label>
@@ -287,7 +294,7 @@
             <button
               @click="generateScript"
               :disabled="!novelText.trim() || isGenerating"
-              class="w-full py-3 px-4 rounded-xl font-semibold text-white transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 hover:shadow-lg hover:shadow-indigo-500/25 active:scale-[0.98]"
+              class="w-full mt-auto py-3 px-4 rounded-xl font-semibold text-white transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 hover:shadow-lg hover:shadow-indigo-500/25 active:scale-[0.98]"
             >
               <span v-if="!isGenerating" class="flex items-center justify-center gap-2">
                 <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -320,46 +327,6 @@
         </div>
       </section>
     </main>
-
-    <!-- 新建项目弹窗 -->
-    <Teleport to="body">
-      <div v-if="showCreateDialog" class="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm" @click.self="showCreateDialog = false">
-        <div class="bg-slate-800 rounded-2xl border border-slate-700 shadow-2xl w-full max-w-md p-6">
-          <h3 class="text-lg font-semibold text-white mb-4">新建项目</h3>
-          <div class="space-y-4">
-            <div>
-              <label class="block text-sm text-slate-300 mb-1.5">项目名称 *</label>
-              <input v-model="newProject.title" type="text" placeholder="例如：校园爱情改编剧本"
-                class="w-full bg-slate-900/70 border border-slate-600 rounded-lg px-3 py-2 text-slate-200 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/50" />
-            </div>
-            <div>
-              <label class="block text-sm text-slate-300 mb-1.5">描述（可选）</label>
-              <textarea v-model="newProject.description" rows="2" placeholder="简要描述这个项目的目标..."
-                class="w-full bg-slate-900/70 border border-slate-600 rounded-lg px-3 py-2 text-slate-200 placeholder-slate-500 resize-none focus:outline-none focus:ring-2 focus:ring-indigo-500/50"></textarea>
-            </div>
-            <div>
-              <label class="block text-sm text-slate-300 mb-1.5">剧本风格</label>
-              <select v-model="newProject.style"
-                class="w-full bg-slate-900/70 border border-slate-600 rounded-lg px-3 py-2 text-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500/50">
-                <option value="short_drama">短剧</option>
-                <option value="film">电影</option>
-                <option value="stage">舞台剧</option>
-              </select>
-            </div>
-          </div>
-          <div class="flex justify-end gap-3 mt-6">
-            <button @click="showCreateDialog = false"
-              class="px-4 py-2 rounded-lg text-sm text-slate-300 hover:bg-slate-700 transition-colors">
-              取消
-            </button>
-            <button @click="createProject" :disabled="!newProject.title.trim() || creatingProject"
-              class="px-4 py-2 rounded-lg text-sm font-medium bg-indigo-600 hover:bg-indigo-500 text-white disabled:opacity-50 transition-colors">
-              {{ creatingProject ? '创建中...' : '创建' }}
-            </button>
-          </div>
-        </div>
-      </div>
-    </Teleport>
 
     <!-- 删除确认弹窗 -->
     <Teleport to="body">
@@ -405,20 +372,15 @@ const { projectList, loading: loadingProjects } = storeToRefs(projectStore)
 const loadError = computed(() => projectStore.error || '')
 const searchKeyword = ref('')
 const statusFilter = ref('')
-const showCreateDialog = ref(false)
-const creatingProject = ref(false)
 const deleteTarget = ref<any>(null)
 const deleting = ref(false)
 
 // 防抖定时器
 let searchTimer: ReturnType<typeof setTimeout> | null = null
 
-// 新建项目表单
-const newProject = reactive({
-  title: '',
-  description: '',
-  style: 'short_drama',
-})
+// 项目名称和描述（生成剧本时使用）
+const projectName = ref('')
+const projectDescription = ref('')
 
 // 分页总页数
 const totalPages = computed(() => Math.ceil(projectList.value.total / projectList.value.page_size))
@@ -460,33 +422,6 @@ function retryLoadProjects() {
 
 function refreshProjects() {
   fetchProjects(projectList.value.page)
-}
-
-async function createProject() {
-  if (!newProject.title.trim()) return
-  creatingProject.value = true
-
-  try {
-    const res = await fetch('/api/projects', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(newProject),
-    })
-
-    if (!res.ok) throw new Error(`HTTP ${res.status}`)
-
-    const created = await res.json()
-    showCreateDialog.value = false
-    newProject.title = ''
-    newProject.description = ''
-    newProject.style = 'short_drama'
-    // 乐观更新：直接追加到列表，无需重新请求
-    projectStore.addProjectToLocal(created)
-  } catch (e: any) {
-    await dialog.alert('创建失败: ' + e.message, { variant: 'danger' })
-  } finally {
-    creatingProject.value = false
-  }
 }
 
 function confirmDelete(proj: any) {
@@ -749,13 +684,46 @@ async function generateScript() {
       yamlText = await response.text()
     }
 
+    // 确定项目名称和描述：用户填写优先，否则 AI 自动生成
+    let finalName = projectName.value.trim()
+    let finalDescription = projectDescription.value.trim()
+
+    if (!finalName || !finalDescription) {
+      generateMessage.value = '正在生成项目信息...'
+      try {
+        const infoRes = await fetch('/api/generate-project-info', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            novel_text: novelText.value.slice(0, 5000),
+            style: config.style,
+          }),
+        })
+        if (infoRes.ok) {
+          const info = await infoRes.json()
+          if (!finalName) finalName = info.name
+          if (!finalDescription) finalDescription = info.description
+        }
+      } catch (e) {
+        console.warn('AI 生成项目信息失败，使用默认值:', e)
+      }
+    }
+
+    // 兜底：如果仍然为空，使用默认值
+    if (!finalName) {
+      const styleMap: Record<string, string> = { short_drama: '短剧', film: '电影', stage: '舞台剧' }
+      finalName = `${styleMap[config.style] || '短剧'} - ${new Date().toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })}`
+    }
+    if (!finalDescription) {
+      finalDescription = `基于小说文本生成的剧本项目`
+    }
+
     // 乐观更新：在导航前先将项目添加到"我的项目"列表
     const now = new Date().toISOString()
-    const styleMap: Record<string, string> = { short_drama: '短剧', film: '电影', stage: '舞台剧' }
     projectStore.addProjectToLocal({
       id: 'pending-' + Date.now(),
-      title: `${styleMap[config.style] || '短剧'} - ${new Date().toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })}`,
-      description: `基于小说文本生成的${styleMap[config.style] || ''}风格剧本`,
+      title: finalName,
+      description: finalDescription,
       style: config.style,
       status: 'completed',
       owner: 'anonymous',
