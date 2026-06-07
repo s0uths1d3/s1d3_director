@@ -192,9 +192,10 @@
               <div v-if="scriptStore.chapters.length > 0">
                 <h4 class="text-xs font-medium text-slate-400 uppercase tracking-wider mb-2">章节导航</h4>
                 <div v-for="ch in scriptStore.chapters" :key="ch.id"
-                     class="chapter-item p-2.5 rounded-lg cursor-pointer transition-all"
+                     class="chapter-item select-none p-2.5 rounded-lg cursor-pointer transition-all"
                      :class="activeChapterId === ch.id ? 'bg-emerald-500/10 border border-emerald-500/30' : 'bg-slate-800/40 border border-transparent hover:border-slate-600/50 hover:bg-slate-800/60'"
-                     @click="scrollToChapter(ch)">
+                     @click="scrollToChapter(ch)"
+                     @dblclick="scrollToFirstScene(ch)">
                   <div class="chapter-title text-sm font-medium text-white">{{ ch.title }}</div>
                   <div v-if="ch.summary" class="chapter-summary text-[11px] text-slate-500 mt-0.5 line-clamp-2">{{ ch.summary }}</div>
                   <div class="chapter-scenes text-[10px] text-slate-600 mt-1 flex items-center gap-2">
@@ -258,7 +259,7 @@
       </div>
 
       <!-- 中间区域：按章节分组的场景卡片列表（自适应宽度） -->
-      <main ref="scrollContainerRef" class="flex-1 overflow-auto p-4 space-y-6">
+      <main ref="scrollContainerRef" class="flex-1 overflow-auto p-4 space-y-6 self-start">
         <template v-for="(group, gi) in chapterSceneGroups" :key="group.chapterId">
           <ChapterCard
             :chapter-id="group.chapterId"
@@ -1092,6 +1093,23 @@ function scrollToChapter(ch: { id: string; scene_ids: number[] }) {
   }
   if (ch.scene_ids.length > 0) {
     scriptStore.currentSceneId = ch.scene_ids[0]
+  }
+}
+
+/** 双击章节项滚动到该章节的第一个场景卡片 */
+function scrollToFirstScene(ch: { id: string; scene_ids: number[] }) {
+  activeChapterId.value = ch.id
+  if (ch.scene_ids.length > 0) {
+    const firstSceneId = ch.scene_ids[0]
+    scriptStore.currentSceneId = firstSceneId
+    // 滚动到对应的场景卡片元素
+    const container = scrollContainerRef.value
+    if (container) {
+      const sceneEl = container.querySelector(`[data-scene-id="${firstSceneId}"]`)
+      if (sceneEl) {
+        sceneEl.scrollIntoView({ behavior: 'smooth', block: 'center' })
+      }
+    }
   }
 }
 

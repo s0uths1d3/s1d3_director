@@ -20,12 +20,28 @@ pub async fn build_causal_graph(
     if !api_key.is_empty() && api_key != "mock" {
         let prompt = format!(
             "你是一名专业编剧分析师。请分析以下剧本，提取关键事件及其因果关系。\n\n\
+            ## 核心原则：基于实际剧本内容分析\n\
+            你必须仔细阅读下方提供的完整剧本内容，从中提取真实发生的事件和它们之间的因果关系。\n\
+            - 事件（events）必须是剧本中**实际发生的关键情节节点**，而非泛化的概念\n\
+            - 因果边（edges）必须反映**剧本中明确呈现的逻辑关系**，不可凭空推断不存在的关联\n\
+            - 如果两个事件在剧本中没有直接的因果联系，就不要强行建立边\n\n\
             ## 输出要求\n\n\
             返回严格的 JSON 格式，包含 events（事件节点）和 edges（因果连线）两个数组：\n\n\
             {{\n\
               \"events\": [{{\"id\":\"事件ID\",\"description\":\"事件描述文本\",\"scene_ids\":[场景编号],\"chapter\":章节号}}],\n\
               \"edges\": [{{\"from\":\"源事件ID\",\"to\":\"目标事件ID\",\"type\":\"causal|temporal|emotional\",\"strength\":0.0~1.0,\"description\":\"具体因果关系描述\"}}]\n\
             }}\n\n\
+            ### 事件提取指南\n\
+            - 从每个场景（scene）中提取 1~2 个最具影响力的事件\n\
+            - 事件的 description 应包含：谁 + 做了什么 + 结果如何（具体到人名和行动）\n\
+            - 好的事件示例：\"林曦发现笔记本角落的铅笔字迹\" / \"顾言承认策划了整次相遇\"\n\
+            - 差的事件示例：\"角色相遇\" / \"发生冲突\" / \"情感变化\"\n\
+            - scene_ids 和 chapter 必须准确填写该事件实际发生的场景编号和章节号\n\n\
+            ### 边（因果关系）提取指南\n\
+            - 只建立**确实存在的**因果关系，宁可少建也不要错建\n\
+            - 每条边的 description 必须用一句话说明具体的因果机制\n\
+            - strength 应反映因果关系的确定性：必然发生=0.9+, 很可能=0.7-0.9, 有可能=0.4-0.7, 弱关联=0.1-0.4\n\
+            - type 选择要准确：如果A直接导致B用causal，如果只是先后发生用temporal，如果是情绪驱动行为用emotional\n\n\
             ## 因果边（edges）的关键规则\n\n\
             1. **每条边必须包含 description 字段**：用简洁的中文描述具体的因果机制，例如：\n\
                - \"直接导致\" / \"触发\" / \"引发\" / \"促使\" / \"间接造成\" / \"时间推进后必然发生\"\n\
@@ -37,11 +53,18 @@ pub async fn build_causal_graph(
                - emotional: 情感驱动（情绪/心理状态变化导致的行为或事件）\n\
             3. **strength 字段**：0.1~1.0，表示因果强度/确定性。1.0=必然发生，0.5=较可能，0.1=弱相关\n\
             4. **description 是连线上显示的核心文本**，请确保它准确、具体、可读性强\n\n\
-            ## 剧本内容（前5000字）：\n{}",
-            safe_truncate(script_yaml, 5000)
+            ## 剧本内容（前15000字）：\n{}",
+            safe_truncate(script_yaml, 15000)
         );
 
-        let response = call_deepseek(&prompt, api_key, base_url, None, true, "deepseek-chat").await?;
+        let response = call_deepseek(
+            &prompt,
+            api_key,
+            base_url,
+            Some("你是专业的剧本分析师，擅长从文本中准确提取事件和因果关系。只输出基于事实的分析结果。"),
+            true,
+            "deepseek-chat",
+        ).await?;
         if let Ok(cg) = serde_json::from_str::<CausalGraphResponse>(&response) {
             return Ok(causal_response_to_data(&cg));
         }

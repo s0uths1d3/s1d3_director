@@ -78,12 +78,17 @@ pub async fn build_relation_network(
     if !api_key.is_empty() && api_key != "mock" {
         let prompt = format!(
             "你是一名专业编剧分析师。请分析以下剧本中角色之间的社会关系网络。\n\n\
+            ## 核心原则：基于剧本实际交互分析角色关系\n\n\
+            你必须仔细阅读下方的完整剧本内容，从中提取角色之间的真实社会关系。\n\
+            - 关系必须基于剧本中**实际发生的互动**（对话、共同行动、冲突、合作等）\n\
+            - 不可为没有交集的角色建立关系（或标记为\"无交集/陌生人\"）\n\
+            - 关系的亲密度、信任度等数值必须有剧本中的具体行为作为依据\n\n\
             ## 输出要求\n\n\
             返回严格的 JSON 格式：\n\n\
             {{\n\
               \"matrix\": [\n\
                 {{\"from\":\"角色A\",\"to\":\"角色B\",\"intimacy\":0.0~1.0,\"power_gap\":-1.0~1.0,\"trust\":0.0~1.0,\n\
-                 \"relation_type\":\"关系类型标签\",\"description\":\"关系描述（可选）\",\n\
+                 \"relation_type\":\"关系类型标签\",\"description\":\"关系描述（含判定依据）\",\n\
                  \"history\":[{{\"scene_id\":场景号,\"delta_intimacy\":变化量,\"delta_power\":变化量,\"delta_trust\":变化量}}]}}\n\
               ]\n\
             }}\n\n\
@@ -100,19 +105,29 @@ pub async fn build_relation_network(
             - 中性类：「熟人」/「邻居」/「路人」/「交易关系」\n\
             - 对立类：「仇人」/「对手」/「政敌」/「情敌」/「背叛者」\n\
             - 不对称类：「单恋」/「追随者」/「提防对象」/「利用关系」\n\n\
-            ### 3. 数值字段含义\n\
+            ### 3. 数值字段含义与校准规则\n\
             - intimacy（亲密度）：0=完全疏远/陌生，0.5=普通认识，0.8=亲密好友，1.0=至亲/灵魂伴侣\n\
+              校准：综合互动频率 × 互动深度 × 情感表达强度\n\
             - power_gap（权力差距）：负值=from 弱于 to，正值=from 强于 to，0=平等。范围 -1.0 ~ 1.0\n\
-            - trust（信任度）：0=完全不信任/怀疑，0.5=一般信任，0.9=高度信赖，<0.25=明显不信任/敌意\n\n\
-            ### 4. 视觉区分规则\n\
+              校准：决策权归属 × 社会地位差异 × 对话中的主导/被动地位\n\
+            - trust（信任度）：0=完全不信任/怀疑，0.5=一般信任，0.9=高度信赖，<0.25=明显不信任/敌意\n\
+              校准：对方是否曾辜负/帮助过自己 × 自己是否愿意向对方暴露脆弱面\n\
+            - **所有数值必须在 description 中给出判定依据**（引用具体剧情事件）\n\n\
+            ### 4. 关系判定指南\n\
+            - **亲密度高(>0.7)**的依据：频繁私下交流、互相帮助、身体接触、共享秘密、共同经历危机\n\
+            - **信任度高(>0.7)**的依据：托付重要事务、在危险时依赖对方、坦诚分享弱点\n\
+            - **对立关系(trust<0.3)**的依据：直接言语冲突、背叛行为、利益对立、互相伤害\n\
+            - **每对出现在同一场景中的角色都应评估其关系**，即使关系微弱也要记录\n\
+            - 使用剧本中角色的**实际名字**（非ID）作为 from/to 字段的值\n\n\
+            ### 5. 视觉区分规则\n\
             - **高亲密度 + 高信任**（intimacy>0.7, trust>0.7）→ 关系类型偏正向（亲密/友好），视觉用暖色线\n\
             - **低信任度**（trust<0.35）→ 关系类型偏向对立/紧张，视觉用冷色/红色线\n\
             - **极端对立**（trust<0.2, intimacy<0.3）→ relation_type 应明确标记为「仇人」「对手」等对抗性词汇\n\n\
-            ## 剧本内容（前5000字）：\n{}",
-            safe_truncate(script_yaml, 5000)
+            ## 剧本内容（前15000字）：\n{}",
+            safe_truncate(script_yaml, 15000)
         );
 
-        let response = call_deepseek(&prompt, api_key, base_url, None, true, "deepseek-chat").await?;
+        let response = call_deepseek(&prompt, api_key, base_url, Some("你是专业的角色关系分析师，擅长从剧本对话和行动中准确推断人物关系。只输出基于文本证据的分析结果。"), true, "deepseek-chat").await?;
         if let Ok(rn) = serde_json::from_str::<RelationNetworkResponse>(&response) {
             return Ok(relation_response_to_data(&rn));
         }

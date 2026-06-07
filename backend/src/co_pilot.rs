@@ -384,3 +384,115 @@ fn mock_regenerate_response(req: &RegenerateRequest) -> RegenerateResponse {
         }
     }
 }
+
+// ==================== 项目信息自动生成 ====================
+
+/// 项目信息生成请求
+#[derive(Debug, Deserialize)]
+pub struct ProjectInfoRequest {
+    /// 小说文本（用于分析主题）
+    pub novel_text: String,
+    /// 剧本风格
+    #[serde(default = "default_style")]
+    pub style: String,
+}
+
+fn default_style() -> String {
+    "short_drama".to_string()
+}
+
+/// 项目信息生成响应
+#[derive(Debug, Serialize)]
+pub struct ProjectInfoResponse {
+    pub name: String,
+    pub description: String,
+}
+
+const PROJECT_INFO_SYSTEM_PROMPT: &str =
+    "你是一个专业的影视项目命名和描述助手。\
+     根据提供的小说文本片段和剧本风格，生成一个简洁有吸引力的项目名称（不超过20字）\
+     和一段准确的项目描述（不超过100字）。\n\n\
+     要求：\n\
+     - 名称：体现故事核心主题或情感基调，具有辨识度\n\
+     - 描述：概括故事主线、主要角色关系、风格特点\n\
+     - 输出严格的 JSON 格式\n\n\
+     输出格式：\n\
+     {\"name\": \"项目名称\", \"description\": \"项目描述\"}";
+
+/// 根据小说文本自动生成项目名称和描述
+pub async fn generate_project_info(
+    req: &ProjectInfoRequest,
+    api_key: &str,
+    base_url: &str,
+) -> Result<ProjectInfoResponse, String> {
+    // 模拟模式
+    if api_key.is_empty() || api_key == "mock" {
+        return Ok(mock_project_info_response(&req.novel_text));
+    }
+
+    let novel_preview = safe_truncate(&req.novel_text, 2000);
+    let style_label = match req.style.as_str() {
+        "film" => "电影",
+        "stage" => "舞台剧",
+        _ => "短剧",
+    };
+
+    let user_prompt = format!(
+        "小说文本预览:\n{}\n\n目标剧本风格: {}",
+        novel_preview, style_label
+    );
+
+    let response = call_deepseek(
+        &user_prompt,
+        api_key,
+        base_url,
+        Some(PROJECT_INFO_SYSTEM_PROMPT),
+        true, // JSON 模式
+        "deepseek-chat",
+    )
+    .await?;
+
+    match serde_json::from_str::<serde_json::Value>(&response) {
+        Ok(json) => Ok(ProjectInfoResponse {
+            name: json.get("name")
+                .and_then(|v| v.as_str())
+                .unwrap_or("未命名项目")
+                .to_string(),
+            description: json.get("description")
+                .and_then(|v| v.as_str())
+                .unwrap_or("AI 生成的剧本项目")
+                .to_string(),
+        }),
+        Err(_) => {
+            tracing::warn!("项目信息生成返回非 JSON 格式");
+            Ok(mock_project_info_response(&req.novel_text))
+        }
+    }
+}
+
+fn mock_project_info_response(novel_text: &str) -> ProjectInfoResponse {
+    let preview = safe_truncate(novel_text, 300);
+    let name_hint = preview
+        .lines()
+        .find(|l| !l.trim().is_empty())
+        .map(|l| l.trim())
+        .unwrap_or("未命名");
+
+    let name = if name_hint.len() > 18 {
+        format!("{}…改编剧本", &name_hint[..16])
+    } else {
+        format!("{}改编剧本", name_hint)
+    };
+
+    ProjectInfoResponse {
+        name,
+        description: format!(
+            "基于小说文本生成的短剧风格剧本。{}",
+            if novel_text.len() > 500 {
+                "涵盖多章节叙事结构，包含完整的人物关系与情节发展。"
+            } else {
+                "包含核心场景与人物对话。"
+            }
+        ),
+    }
+}

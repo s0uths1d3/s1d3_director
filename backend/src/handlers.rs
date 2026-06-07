@@ -479,6 +479,30 @@ pub async fn regenerate_handler(
     }
 }
 
+/// AI 自动生成项目名称和描述
+pub async fn generate_project_info_handler(
+    State(state): State<AppState>,
+    headers: axum::http::HeaderMap,
+    Json(body): Json<co_pilot::ProjectInfoRequest>,
+) -> Response {
+    let api_key = get_api_key(&state, &headers);
+    let base_url = get_base_url(&state, &headers);
+
+    tracing::info!(
+        novel_len = body.novel_text.len(),
+        style = %body.style,
+        "项目信息生成请求"
+    );
+
+    match co_pilot::generate_project_info(&body, &api_key, &base_url).await {
+        Ok(response) => {
+            tracing::info!(name = %response.name, "项目信息生成成功");
+            Json(response).into_response()
+        }
+        Err(e) => error_response(StatusCode::INTERNAL_SERVER_ERROR, &e),
+    }
+}
+
 // ==================== 内部辅助函数 =================/// 提取角色（LLM 或模拟模式）
 async fn extract_characters_mock_or_llm(
     text: &str,

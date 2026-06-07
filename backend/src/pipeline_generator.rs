@@ -211,11 +211,17 @@ async fn analyze_novel(
 
 ## 分析规则
 
-1. 提取主要角色（10~50人），每个角色需有 id/name/traits/voice/arc_summary/motivation
+1. 提取主要角色（3~15人），仅提取真正参与剧情推进的角色（有台词、有行动、有关系变化的）；背景路人/一次性提及人物不要提取。每个角色需有 id/name/traits/voice/arc_summary/motivation
 2. 识别 N 条情节线（至少1条主线 + 支线），每条有 id/name/description/type(main/supporting)
-3. 将小说划分为 M 个叙事单元（建议每单元对应 3~8 个场景），每个单元有 title/order/start_offset/end_offset/summary/key_characters
+3. 按叙事完整性划分章节单元（而非机械切分），一个叙事单元 = 一个完整的情节转折或情感弧段；建议每章对应 2~5 个场景；禁止将单一连续对话拆分为多个场景。每个单元有 title/order/start_offset/end_offset/summary/key_characters
 4. 生成全文摘要（200字以内）
 5. start_offset 和 end_offset 是原文中的字符位置（从0开始）
+
+## 忠实度要求（最高优先级）
+本章分析结果必须严格基于提供的小说原文。
+- 不得编造原文中不存在的人物、事件或设定
+- 章节摘要必须准确反映该章实际发生的核心事件
+- 角色特征和弧光必须有原文依据
 
 ## 小说文本
 
@@ -274,26 +280,59 @@ fn truncate_for_analysis(text: &str) -> String {
 /// 从 LLM 响应中提取 JSON
 fn extract_json_from_response(response: &str) -> String {
     let trimmed = response.trim();
-
     if trimmed.starts_with("```") {
         if let Some(start) = trimmed.find('\n') {
             if let Some(end) = trimmed[start + 1..].find("```") {
-                return trimmed[start + 1..start + 1 + end].trim().to_string();
+                return extract_json_inner(trimmed[start + 1..start + 1 + end].trim());
             }
         }
     }
+    extract_json_inner(trimmed)
+}
 
-    if trimmed.starts_with('{') {
-        return trimmed.to_string();
+/// 内部提取：优先数组，对象包裹则提取其中数组字段
+fn extract_json_inner(text: &str) -> String {
+    let t = text.trim();
+
+    // A: 直接是 JSON 数组
+    if t.starts_with('[') {
+        if let Some(e) = t.rfind(']') { return t[..=e].to_string(); }
+        return t.to_string();
     }
 
-    if let Some(start) = trimmed.find('{') {
-        if let Some(end) = trimmed.rfind('}') {
-            return trimmed[start..=end].to_string();
+    // B: 是 JSON 对象 → 尝试提取内部数组
+    if t.starts_with('{') {
+        if let Ok(v) = serde_json::from_str::<serde_json::Value>(t) {
+            if v.is_array() { return t.to_string(); }
+            if let Some(o) = v.as_object() {
+                for k in &["scenes", "data", "result", "output", "items"] {
+                    if let Some(a) = o.get(*k).and_then(|x| x.as_array()) {
+                        if let Ok(s) = serde_json::to_string(a) { return s; }
+                    }
+                }
+                for (_, val) in o {
+                    if val.is_array() {
+                        if let Ok(s) = serde_json::to_string(val) { return s; }
+                    }
+                }
+            }
+        }
+        if let Some(e) = t.rfind('}') { return t[..=e].to_string(); }
+        return t.to_string();
+    }
+
+    // C: 其他格式，找 [ ... ] 片段
+    if let Some(s) = t.find('[') {
+        if let Some(e) = t.rfind(']') {
+            if e > s { return t[s..=e].to_string(); }
         }
     }
 
-    response.to_string()
+    if let Some(s) = t.find('{') {
+        if let Some(e) = t.rfind('}') { return t[s..=e].to_string(); }
+    }
+
+    t.to_string()
 }
 
 // ==================== Stage 2: 分块生成场景 ====================
@@ -430,7 +469,17 @@ async fn generate_single_chunk(
     };
 
     let prompt = format!(
-        r#"你是一名专业编剧。请为以下章节生成{}场景。
+        r#"你是一名专业编剧。
+
+## 最高优先级：忠实改编原则（违反即视为无效输出）
+
+你正在将一部**已有的小说**改编为剧本。你的首要任务是**忠实还原原著**：
+1. **情节不可篡改**：场景中发生的所有事件必须能在原文章节中找到对应依据，不得编造原文没有的情节转折
+2. **人物设定不可偏离**：角色的性格、说话方式、动机必须严格遵循角色表中的定义和原文表现
+3. **对话必须源自原著**：所有对白应基于原文中的实际对话进行改写和扩展，而非凭空创作。可以合理扩展但核心语义必须一致
+4. **场景顺序遵循原文**：场景的时间线和空间切换应尊重原文的叙事顺序
+
+请为以下章节生成{}场景。
 
 ## 角色表
 
@@ -463,11 +512,11 @@ async fn generate_single_chunk(
     "beats": [
       {{
         "type": "action",
-        "content": "阳光透过落地窗洒在木质书桌上。林曦正埋头在一堆参考书中，时不时推一下滑落的眼镜。",
+        "content": "阳光透过落地窗洒在木质书桌上，尘埃在光柱中缓缓浮动。林曦正埋头在一堆参考书中，时不时推一下滑落的眼镜，笔尖在笔记本上飞快地记录着什么。",
         "speaker": null,
         "emotion": null,
         "participants": [],
-        "stage_direction": "镜头从窗外阳光缓慢推进至林曦的侧脸",
+        "stage_direction": "镜头从窗外阳光缓慢推进至林曦的侧脸，特写她专注的眉眼",
         "plot_line_tags": ["plot_main"],
         "alternatives": [
           {{"content": "一道阴影落在书页上，林曦抬起头，撞进一双平静如水的眼睛里。", "tone": "文艺"}}
@@ -488,6 +537,53 @@ async fn generate_single_chunk(
         "alternatives": [
           {{"content": "请问，这个位置……有人吗？", "tone": "礼貌"}},
           {{"content": "呃，打扰了——这里有人坐吗？", "tone": "犹豫"}}
+        ],
+        "selected": 0
+      }},
+      {{
+        "type": "action",
+        "content": "林曦猛地抬头，手里的笔"啪"地掉在桌上。她愣了一秒，慌忙把散开的笔记往旁边收了收。",
+        "speaker": null,
+        "emotion": "惊讶后迅速恢复镇定",
+        "participants": [],
+        "stage_direction": "特写→中景：捕捉林曦从惊讶到掩饰的微表情变化",
+        "plot_line_tags": ["plot_main"],
+        "alternatives": [
+          {{"content": "林曦没有立刻回答，而是用余光快速扫了一眼对面空荡荡的座位，才轻轻摇了摇头。", "tone": "内敛"}}
+        ],
+        "selected": 0
+      }},
+      {{
+        "type": "dialogue",
+        "content": "没、没人。你坐吧。",
+        "speaker": "char_001",
+        "emotion": "有些局促，声音比平时低了一些",
+        "participants": [
+          {{"character_id": "char_001", "role": "speaker", "dialogue": "没、没人。你坐吧。"}},
+          {{"character_id": "char_002", "role": "listener", "dialogue": null}}
+        ],
+        "stage_direction": "林曦低头避开对方的目光，手指无意识地捏着笔帽",
+        "plot_line_tags": ["plot_main"],
+        "alternatives": [
+          {{"content": "空着呢，随便坐。", "tone": "随意"}},
+          {{"content": "……没人。", "tone": "简短冷淡"}}
+        ],
+        "selected": 0
+      }},
+      {{
+        "type": "dialogue",
+        "content": "谢谢。你这笔记记得挺认真的啊，期末复习？",
+        "speaker": "char_002",
+        "emotion": "轻松自然，带着善意的调侃",
+        "participants": [
+          {{"character_id": "char_002", "role": "speaker", "dialogue": "谢谢。你这笔记记得挺认真的啊，期末复习？"}},
+          {{"character_id": "char_001", "role": "listener", "dialogue": null}}
+        ],
+        "stage_direction": "对方拉开椅子坐下，目光落在林曦摊开的笔记本上",
+        "plot_line_tags": ["plot_main"],
+        "alternatives": [
+          {{"content": "谢了。你在看什么书？这么厚。", "tone": "好奇"}},
+          {{"content": "多谢。——你也是文学系的？", "tone": "试探"}}
         ],
         "selected": 0
       }}
@@ -512,7 +608,30 @@ async fn generate_single_chunk(
    - 动作节拍至少提供 1 个备选方案
    - tone 取值示例：礼貌/犹豫/激动/冷淡/温柔/愤怒/文艺/口语化/正式
    - ❌ "alternatives": []   ✅ "alternatives": [{{"content":"不同措辞版本", "tone":"语气标签"}}]
-9. **每章生成 3~8 个场景，场景 ID 从 1 开始递增**
+9. **场景数量控制（重要）**：
+   - 每章生成 **2~5 个场景**（宁少勿多）
+   - 一个场景 = 一个连续的时空单元（同一地点+同一时间段内发生的事件集合）
+   - **禁止过度拆分**：如果两个事件发生在同一地点且时间连贯，应合并在同一场景中
+   - **禁止的场景拆分方式**：❌ 把一段连续对话拆成3个场景  ❌ 把同一场戏按"动作-对话-动作"拆分
+   - **正确的场景边界**：✅ 地点转换  ✅ 时间跳跃（如"三天后"）  ✅ 叙事视角切换
+10. **节拍丰富度要求（重要）**：
+    - 每个场景至少包含 **5~10 个节拍（beats）**，不应只有1-2个
+    - 对话场景：需包含足够的来回对话（至少3轮以上），展现人物互动和情感推进
+    - 动作场景：需有起承转合的动作序列（铺垫→发展→高潮→收尾），而非单句描述
+    - 每段对话内容应在 **15~80 字**之间，太短无法传递信息，太长不适合影视节奏
+    - 独白/内心戏同样需要有层次感，不能只是一句话
+11. **原文映射要求（最重要）**：
+    - 生成每个场景前，先在脑海中标注该场景对应原文中的哪些段落
+    - 场景中的关键对话必须在原文中有迹可循（可改写、扩展、精炼，但不可无中生有）
+    - 如果原文某章有大段精彩对话，必须将其转化为对应的 dialogue beats，不可省略为一句概括
+    - 场景的情感强度（emotion_intensity）应与原文该段的情感基调一致
+
+## 输出格式（最后确认）
+
+**你的完整输出必须且只能是一个 JSON 数组，以 `[` 开头，以 `]` 结尾。**
+- ✅ 正确：`[{{"id":1,"location":"...","beats":[...}}, {{"id":2,...}}]`
+- ❌ 错误：`{{"scenes":[...]}}` 或 `{{"data":[...]}}` 或任何包含外层键名包裹的结构
+- 不要添加任何解释文字、markdown 标记或代码块符号
 
 ## 本章原文
 
@@ -528,7 +647,7 @@ async fn generate_single_chunk(
     );
 
     let model = select_model("generation");
-    let response = call_deepseek(&prompt, api_key, base_url, Some("你是专业编剧。严格输出JSON数组格式。"), true, model).await?;
+    let response = call_deepseek(&prompt, api_key, base_url, Some("你是专业编剧。你的输出必须且只能是一个JSON数组（以[开头、]结尾），不要用任何对象包裹，不要添加任何解释文字。"), true, model).await?;
 
     let json_str = extract_json_from_response(&response);
     let scenes: Vec<Scene> = serde_json::from_str(&json_str)

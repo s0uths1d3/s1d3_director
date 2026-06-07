@@ -1,5 +1,6 @@
 <template>
   <div
+    :data-scene-id="scene.id"
     class="group-scene bg-slate-800/50 backdrop-blur-sm rounded-xl border border-slate-700/50 overflow-hidden transition-all duration-200"
     :class="isExpanded ? '' : 'hover:border-slate-600/50'"
   >
